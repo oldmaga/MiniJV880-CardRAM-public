@@ -19,6 +19,30 @@ Public-clean snapshot:
 
 This public repository is intentionally cleaner than the private development repository. Experimental SysEx/CardRAM mapping research, private reports and non-public test material are not included here.
 
+## Supported hardware and memory requirements
+
+This v2.4.0 public-clean snapshot is developed and tested mainly on Raspberry Pi 4 Model B.
+
+Recommended target:
+
+- Raspberry Pi 4 Model B.
+- A Raspberry Pi 4 model with enough RAM headroom for the number of SR-JV80 expansion images you plan to keep available.
+
+Not recommended for this release:
+
+- Raspberry Pi Zero class boards.
+- Raspberry Pi 1 / 2 class boards.
+- Raspberry Pi 3 / 3B / 3B+ class boards.
+- Low-RAM configurations.
+
+Raspberry Pi 5 is not the validation target for this release. It may require separate testing and possible build/runtime adjustments.
+
+Important SR-JV80 memory note:
+
+This build scans the SD-card `roms/` folder at boot and loads valid SR-JV80 expansion images into RAM. Each valid SR-JV80 expansion image uses about 8 MB of RAM. Keeping many SR images available at the same time increases boot-time memory usage.
+
+For reliable operation, use a Raspberry Pi 4 with comfortable RAM headroom and keep only the SR-JV80 images you actually need on the SD card.
+
 ## Main features in this v2.4.0 line
 
 ### DATA short press and long press
