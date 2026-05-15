@@ -68,3 +68,10 @@ roms/
 # Do not publish local JV-880 ROM/container/placeholder files
 /jv880
 /jv880*
+
+# Local build environment files
+env-minijv880.sh
+
+# Python cache
+__pycache__/
+*.pyc
