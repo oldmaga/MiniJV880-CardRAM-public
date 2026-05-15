@@ -458,11 +458,13 @@ Documentation:
 
 The public default configuration disables TFTP. Enable it explicitly only when needed for local maintenance.
 
-## Hardware box
+## Related repositories
 
-The hardware/STL box files are maintained separately:
+- Hardware box / STL files: https://github.com/oldmaga/MiniJV-880-Box
+- Software / CardRAM public source snapshot: https://github.com/oldmaga/MiniJV880-CardRAM-public
 
-    https://github.com/oldmaga/MiniJV-880-Box
+This repository contains the public-clean software/CardRAM source snapshot.  
+The MiniJV-880-Box repository contains the hardware box/STL side of the project.
 
 ## Licenses and attribution
 
