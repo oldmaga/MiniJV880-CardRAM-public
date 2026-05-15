@@ -61,8 +61,6 @@ The DATA long press Card/C behavior was tested in:
 - Patch Copy
 - Performance Copy
 
-The MONITOR button is no longer used as a Card/C fallback. It remains preserved for its own Performance Play function.
-
 ### CardRAM support
 
 This line includes MiniJV880 CardRAM work, including:
