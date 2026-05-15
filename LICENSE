@@ -1,0 +1,55 @@
+MiniJV880-CardRAM License Notice
+================================
+
+MiniJV880-CardRAM is a modified source distribution derived from the
+Mini-JV880 / Mini-JV880pi family of projects.
+
+This repository contains source code only.
+
+It does not include Roland ROMs, SR-JV80 ROMs, SysEx sound banks,
+CardRAM images containing sound data, compiled firmware images,
+SD-card images, or any other Roland copyrighted sound material.
+
+License structure
+-----------------
+
+This project contains code derived from multiple upstream projects.
+
+1. Nuked-SC55-derived emulator code
+
+   Files derived from Nuked-SC55 remain under the original MAME license
+   terms used by Nuked-SC55.
+
+   The original MAME license terms include, among other conditions, a
+   non-commercial restriction. Redistributions may not be sold, nor may
+   they be used in a commercial product or activity.
+
+   The relevant copyright/license notices are preserved in the affected
+   source files.
+
+2. GPL-3.0-covered code
+
+   The remaining project code, including code derived from MiniDexed and
+   Mini-JV880pi where applicable, is distributed under the GNU General
+   Public License version 3.
+
+3. Third-party submodules
+
+   This repository references external submodules such as CMSIS_5 and
+   circle-stdlib. These projects are not authored by this repository and
+   remain governed by their own upstream licenses.
+
+No warranty
+-----------
+
+This software is provided as-is, without any warranty. Use it at your own
+risk.
+
+Important note about ROMs and sound data
+----------------------------------------
+
+This repository does not provide ROM files or sound content.
+
+Users are responsible for obtaining and using any required ROMs, SR-JV80
+expansion images, SysEx banks or CardRAM images legally, according to the
+laws and licenses that apply in their jurisdiction.
