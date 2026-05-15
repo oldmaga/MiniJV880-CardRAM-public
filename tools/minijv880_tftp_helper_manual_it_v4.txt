@@ -1,0 +1,1077 @@
+MiniJV880 - Manuale operativo GUI TFTP Helper
+=============================================
+
+Versione documento:
+  2026-04-29
+
+Stato di riferimento
+--------------------
+
+Checkpoint consolidato di base:
+
+  checkpoint-cardram-http-management-working
+
+Ambito del manuale corrente:
+
+  Questo manuale descrive lo stato di lavoro previsto dopo il checkpoint base,
+  inclusa la successiva aggiunta del supporto TFTP per upload e download
+  Data Card in:
+
+    - src/netfileserver.cpp
+    - tools/minijv880_tftp_gui.sh
+    - tools/minijv880_tftp_put.py
+
+Nota:
+  Al momento di questo aggiornamento documentale, le aggiunte TFTP Data Card
+  sono state testate con esito positivo ma non risultano ancora consolidate in
+  un nuovo checkpoint/tag finale.
+
+Ripristino dello stato consolidato di base:
+
+  git reset --hard checkpoint-cardram-http-management-working
+  git submodule update --init --recursive
+
+
+Scopo
+-----
+
+La GUI TFTP Helper è uno strumento lato PC per la manutenzione Ethernet/TFTP di
+MiniJV880:
+
+  1. Upload batch di file .syx verso una sottocartella PN-JV80 esistente.
+  2. Upload di una singola immagine Data Card .bin verso SD:/CARD-RAM/.
+  3. Download di una singola immagine Data Card .bin da SD:/CARD-RAM/.
+  4. Upload/staging del kernel MiniJV880.
+  5. Upload/staging del file minijv880.ini.
+  6. Calcolo del digest compatto MiniJV880 per qualsiasi file.
+
+Lo strumento gira sul PC Linux, non sul Raspberry Pi.
+
+Percorso nel repository:
+
+  Mini-JV880pi/tools/
+
+File principali:
+
+  tools/minijv880_tftp_gui.sh
+  tools/minijv880_tftp_put.py
+
+
+Requisiti lato PC
+-----------------
+
+Lo strumento richiede:
+
+  - bash
+  - python3
+  - zenity
+  - curl
+  - tftp
+
+Installazione pacchetti su Ubuntu/Debian:
+
+  sudo apt install zenity curl python3 tftp
+
+Se la distribuzione non fornisce un pacchetto chiamato tftp, installare il
+pacchetto che fornisce il comando tftp, per esempio tftp-hpa.
+
+Entrambi gli script devono essere eseguibili:
+
+  chmod +x tools/minijv880_tftp_gui.sh tools/minijv880_tftp_put.py
+
+
+Avvio dello strumento
+---------------------
+
+Dalla root del repository:
+
+  tools/minijv880_tftp_gui.sh
+
+All'avvio, lo strumento chiede l'indirizzo IP del MiniJV880.
+
+Valore predefinito:
+
+  192.168.1.50
+
+Override dell'host predefinito:
+
+  MINIJV880_HOST=192.168.1.50 tools/minijv880_tftp_gui.sh
+
+La porta HTTP usata per leggere le pagine di browse del MiniJV880 è:
+
+  8080
+
+Override della porta HTTP:
+
+  MINIJV880_HTTP_PORT=8080 tools/minijv880_tftp_gui.sh
+
+
+Finestra principale
+-------------------
+
+La finestra principale offre sei funzioni:
+
+  - Upload .syx batch to PN-JV80 subfolder
+  - Upload Data Card .bin to CARD-RAM
+  - Download Data Card .bin from CARD-RAM
+  - Stage kernel8-rpi4.img
+  - Stage minijv880.ini
+  - Calculate MiniJV880 digest for a file
+
+Messaggio della finestra:
+
+  Select one of the following actions:
+
+Pulsanti:
+
+  Run:
+    esegue la funzione selezionata.
+
+  Quit:
+    chiude la GUI e termina lo script.
+
+
+1. Upload batch .syx verso PN-JV80
+----------------------------------
+
+Questa funzione invia molti file .syx in sequenza dal PC a una sottocartella
+esistente sotto:
+
+  SD:/PN-JV80/
+
+Il batch è gestito interamente lato PC.
+Il firmware riceve ogni file come una normale sessione TFTP WRQ indipendente.
+
+Formato nome TFTP:
+
+  <cartella>/<file>.syx
+
+Esempio:
+
+  40-USER/antarcti.syx
+
+Mapping su SD:
+
+  40-USER/antarcti.syx
+  -> SD:/PN-JV80/40-USER/antarcti.syx
+
+
+Procedura operativa .syx
+------------------------
+
+1. Avviare lo strumento:
+
+     tools/minijv880_tftp_gui.sh
+
+2. Inserire/confermare l'indirizzo IP del MiniJV880.
+
+3. Selezionare:
+
+     Upload .syx batch to PN-JV80 subfolder
+
+4. Selezionare la cartella locale del PC contenente i file .syx.
+
+5. Lo strumento usa HTTP per leggere le sottocartelle reali sotto:
+
+     SD:/PN-JV80/
+
+6. Selezionare dall'elenco la sottocartella di destinazione.
+
+   Esempi:
+
+     10-USER
+     20-USER
+     30-USER
+     40-USER
+
+   La cartella speciale Roland-PN non viene proposta perché è in sola lettura.
+
+7. Confermare l'upload.
+
+8. Durante il trasferimento viene mostrata una barra di avanzamento reale.
+
+9. Al termine viene mostrato un report testuale.
+
+
+Comportamento del batch .syx
+----------------------------
+
+Lo strumento esegue un controllo preliminare via HTTP:
+
+  - verifica che la cartella remota esista;
+  - legge i file già presenti;
+  - evita di inviare file che esistono già.
+
+Possibili risultati:
+
+  OK:
+    Il file è stato trasferito con successo.
+
+  SKIPPED:
+    Il file era già presente nella cartella di destinazione.
+    Lo strumento non ha tentato l'upload.
+
+  FAILED:
+    Il trasferimento è fallito.
+    Il report prova a indicare la causa più probabile.
+
+Esempio report:
+
+  Summary
+  -------
+  Uploaded OK: 4
+  Skipped:     25
+  Failed:      0
+
+
+Regole firmware per upload .syx
+-------------------------------
+
+Supportato:
+
+  - solo TFTP WRQ;
+  - solo file .syx;
+  - estensione .syx case-insensitive;
+  - destinazione in formato cartella/file.syx;
+  - esattamente una sottocartella sotto PN-JV80;
+  - cartella di destinazione già esistente;
+  - nessun overwrite;
+  - scrittura tramite file temporaneo .tmp;
+  - rename finale solo a trasferimento completato;
+  - cancellazione del .tmp in caso di errore/abort;
+  - cartella Roland-PN bloccata.
+
+Non supportato in questa fase:
+
+  - creazione cartelle via TFTP;
+  - upload nella root di PN-JV80;
+  - path multi-livello;
+  - overwrite di file esistenti;
+  - delete via TFTP;
+  - rename/move via TFTP;
+  - upload directory;
+  - upload archivi .zip/.tar;
+  - stato batch lato firmware;
+  - Wi-Fi per funzioni di manutenzione.
+
+
+Note su nomi cartella/file
+--------------------------
+
+Il firmware accetta path TFTP come:
+
+  40-USER/filename.syx
+
+Non usare:
+
+  PN-JV80/40-USER/filename.syx
+  /40-USER/filename.syx
+  40-USER/subfolder/filename.syx
+  Roland-PN/filename.syx
+
+La GUI riduce il rischio di errore mostrando le cartelle reali lette dalla
+pagina HTTP di browse del MiniJV880.
+
+
+2. Upload singolo Data Card .bin verso CARD-RAM
+-----------------------------------------------
+
+Questa funzione invia una singola immagine Data Card .bin dal PC verso la
+collection:
+
+  SD:/CARD-RAM/
+
+Formato nome TFTP:
+
+  CARD-RAM/<file>.bin
+
+Esempio:
+
+  CARD-RAM/Strings.bin
+
+Mapping su SD:
+
+  CARD-RAM/Strings.bin
+  -> SD:/CARD-RAM/Strings.bin
+
+
+Procedura operativa Data Card
+-----------------------------
+
+1. Avviare lo strumento:
+
+     tools/minijv880_tftp_gui.sh
+
+2. Inserire/confermare l'indirizzo IP del MiniJV880.
+
+3. Selezionare:
+
+     Upload Data Card .bin to CARD-RAM
+
+4. Selezionare il file .bin locale.
+
+5. La GUI calcola prima della conferma:
+
+   - dimensione file;
+   - digest compatto MiniJV880.
+
+6. La GUI rifiuta subito il file se la dimensione non è:
+
+     32768 bytes
+
+7. Inserire o confermare il nome file remoto semplice, ad esempio:
+
+     Strings.bin
+
+8. La GUI costruisce il path remoto finale:
+
+     CARD-RAM/Strings.bin
+
+9. Confermare l'upload.
+
+10. Durante il trasferimento viene mostrata una barra di avanzamento reale.
+
+11. Al termine viene mostrato un report testuale.
+
+
+Regole firmware per upload Data Card
+------------------------------------
+
+Supportato:
+
+  - solo TFTP WRQ;
+  - solo file .bin;
+  - estensione .bin case-insensitive;
+  - solo path a un livello nel formato CARD-RAM/<file>.bin;
+  - cartella SD:/CARD-RAM/ già esistente;
+  - nessun overwrite;
+  - scrittura tramite file temporaneo .tmp;
+  - rename finale solo dopo trasferimento valido;
+  - cleanup del .tmp in caso di errore/abort;
+  - dimensione finale obbligatoria: 32768 bytes.
+
+Supporto download:
+
+  Il download Data Card è supportato tramite l'azione TFTP dedicata. Il
+  download HTTP resta intenzionalmente non disponibile perché le Data Card
+  valide sono da 32768 byte e superano il limite di buffer HTTP da 8192 byte.
+
+Non supportato:
+
+  - sottolivelli sotto CARD-RAM;
+  - upload batch lato firmware;
+  - upload archivi .zip/.tar;
+  - overwrite di file esistenti;
+  - create/delete/rename via TFTP oltre al singolo upload valido.
+
+
+Note su nomi remoti Data Card
+-----------------------------
+
+La GUI accetta solo un nome file semplice come:
+
+  Strings.bin
+
+Non usare:
+
+  CARD-RAM/Strings.bin
+  /Strings.bin
+  sub/Strings.bin
+  .
+  ..
+
+La GUI aggiunge automaticamente il prefisso remoto:
+
+  CARD-RAM/
+
+Il firmware crea il file finale in:
+
+  SD:/CARD-RAM/<nome>.bin
+
+
+Pagina HTTP elenco CardRAM
+--------------------------
+
+La pagina HTTP di elenco CardRAM è:
+
+  /cardram-list
+
+Comportamento corrente:
+
+  - la pagina è paginata;
+  - vengono mostrati 20 file .bin per pagina;
+  - i nomi file sono ordinati secondo ordine ASCII/C puro con strcmp;
+  - l'ordinamento è globale e resta coerente anche tra pagine successive;
+  - la pagina mostra Page X/Y e i link Previous/Next quando applicabile.
+
+Nota importante:
+
+  non si tratta di un ordinamento locale-aware e nemmeno di natural sort.
+  Maiuscole/minuscole e simboli vengono confrontati esattamente secondo
+  l'ordine ASCII usato dal firmware.
+
+
+Azioni HTTP sui file CardRAM
+----------------------------
+
+Dalla pagina elenco CardRAM, selezionando un file si apre:
+
+  /cardram-select?name=<file>.bin
+
+Questa pagina è un precheck compatto di selezione Data Card e una pagina azioni.
+Offre:
+
+  - Select this card for next boot
+  - Rename this .bin file
+  - Delete this .bin file
+
+Il download HTTP non viene offerto intenzionalmente per i file .bin CardRAM.
+Una Data Card valida è da 32768 byte, mentre il buffer di risposta HTTP attuale
+è da 8192 byte. Per copiare una CardRAM .bin dal MiniJV880 al PC usare
+l'azione dedicata di download Data Card via TFTP.
+
+
+Rename HTTP CardRAM
+-------------------
+
+Il flusso rename è:
+
+  /cardram-rename?name=<vecchio>.bin
+  /cardram-rename-exec?name=<vecchio>.bin&newname=<nuovo>.bin
+
+La prima pagina è read-only e valida il file sorgente prima dell'esecuzione.
+La pagina exec esegue l'operazione reale.
+
+Regole rename:
+
+  - sorgente e destinazione devono essere nomi file .bin semplici;
+  - non sono ammessi slash o backslash;
+  - l'estensione .bin è accettata case-insensitive;
+  - il file sorgente deve esistere ed essere un file regolare;
+  - il file destinazione non deve già esistere;
+  - non viene fatto overwrite.
+
+Se il file rinominato è quello selezionato per il prossimo boot in
+SD:/CARD-RAM/current.txt, il firmware aggiorna current.txt al nuovo nome. Se
+questo aggiornamento fallisce dopo il rename, il firmware tenta il rollback del
+rename per evitare che current.txt punti a un file mancante.
+
+Se il file rinominato corrispondeva anche alla Data Card attiva a runtime, la
+pagina segnala che è consigliato il reboot.
+
+
+Delete HTTP CardRAM
+-------------------
+
+Il flusso delete è:
+
+  /cardram-delete?name=<file>.bin
+  /cardram-delete-exec?name=<file>.bin
+
+La prima pagina è read-only e mostra un warning prima della cancellazione. La
+pagina exec esegue l'operazione reale solo se la richiesta è sicura.
+
+Regole delete:
+
+  - il nome target deve essere un semplice nome file .bin;
+  - il file target deve esistere ed essere un file regolare;
+  - la cancellazione è rifiutata se il file è selezionato per il prossimo boot
+    in current.txt;
+  - la cancellazione è rifiutata se il file corrisponde alla Data Card attiva a
+    runtime;
+  - quando eseguita con successo, la cancellazione è irreversibile.
+
+Questa policy conservativa evita di lasciare current.txt puntato a un file
+cancellato ed evita di cancellare il file corrispondente alla Data Card attiva a
+runtime. Per cancellare quel file, selezionare prima un'altra Data Card, fare
+reboot se necessario, poi cancellare il vecchio file.
+
+3. Download singolo Data Card .bin da CARD-RAM
+----------------------------------------------
+
+Questa funzione scarica una singola immagine Data Card .bin dalla collection
+MiniJV880 salvata sulla SD sotto:
+
+  SD:/CARD-RAM/
+
+Il trasferimento è una singola sessione TFTP RRQ.
+
+Formato nome TFTP:
+
+  CARD-RAM/<file>.bin
+
+Esempio:
+
+  CARD-RAM/INTERNAL.bin
+
+Mapping su SD:
+
+  CARD-RAM/INTERNAL.bin
+  <- SD:/CARD-RAM/INTERNAL.bin
+
+
+Procedura operativa download Data Card
+--------------------------------------
+
+1. Avviare lo strumento:
+
+     tools/minijv880_tftp_gui.sh
+
+2. Inserire/confermare l'indirizzo IP del MiniJV880.
+
+3. Selezionare:
+
+     Download Data Card .bin from CARD-RAM
+
+4. Lo strumento legge via HTTP la pagina elenco CardRAM del MiniJV880 e mostra
+   i file .bin disponibili in:
+
+     SD:/CARD-RAM/
+
+5. Selezionare il file Data Card remoto da scaricare.
+
+   Esempio:
+
+     INTERNAL.bin
+
+   Se l'elenco HTTP non può essere caricato, lo strumento può usare il fallback
+   con inserimento manuale del nome file remoto.
+
+6. Selezionare il path locale di destinazione sul PC.
+
+   Se il file locale selezionato esiste già, la finestra di salvataggio può
+   chiedere se sovrascriverlo o scegliere un altro nome.
+
+7. Confermare il download.
+
+8. Durante il trasferimento viene mostrata una finestra di avanzamento.
+
+   Nota: il download usa attualmente il client tftp standard, quindi la finestra
+   di progresso è informativa/pulsante e non byte-accurate come negli upload.
+
+9. Al termine viene mostrato un report testuale.
+
+10. Il report include:
+
+     - path locale di output;
+     - dimensione del file scaricato;
+     - digest compatto MiniJV880;
+     - validazione della dimensione attesa di 32768 byte.
+
+
+Regole lato GUI per download Data Card
+--------------------------------------
+
+Prima di avviare il TFTP, normalmente la GUI ottiene il nome remoto leggendo:
+
+  http://<HOST>:8080/cardram-list
+
+e mostrando i file .bin disponibili in una lista di selezione.
+
+Se l'elenco HTTP non può essere caricato, la GUI può usare il fallback con
+inserimento manuale del nome file remoto.
+
+La GUI applica queste regole prima di avviare il TFTP:
+
+  - il nome remoto deve essere un singolo nome file .bin;
+  - l'estensione .bin è accettata case-insensitive;
+  - il nome remoto non può essere vuoto;
+  - il nome remoto non può essere . o ..;
+  - il nome remoto non può contenere slash o backslash;
+  - il path locale di output non può essere una directory;
+  - la directory locale di output deve già esistere.
+
+La GUI costruisce poi il path TFTP remoto come:
+
+  CARD-RAM/<file>.bin
+
+Esempio:
+
+  CARD-RAM/INTERNAL.bin
+
+
+Regole firmware per download Data Card
+--------------------------------------
+
+Supportato:
+
+  - solo TFTP RRQ per il download;
+  - solo file .bin;
+  - estensione .bin case-insensitive;
+  - sorgente solo nel formato CARD-RAM/file.bin;
+  - esattamente uno slash;
+  - cartella SD:/CARD-RAM/ già esistente;
+  - file esistente e regolare;
+  - dimensione file finale obbligatoria: 32768 byte.
+
+Non supportato:
+
+  - download di sottocartelle sotto CARD-RAM;
+  - path multi-livello;
+  - wildcard o download batch;
+  - download HTTP dei file .bin CardRAM.
+
+
+Test diretto di download da terminale
+-------------------------------------
+
+La stessa operazione può essere provata da terminale:
+
+  mkdir -p /tmp/minijv880_download_test
+  cd /tmp/minijv880_download_test
+  tftp 192.168.1.50 -m binary -c get CARD-RAM/INTERNAL.bin
+  ls -l INTERNAL.bin
+
+Dimensione attesa:
+
+  32768 byte
+
+Validazione opzionale:
+
+  tools/minijv880_cardram_tool.py check-card /tmp/minijv880_download_test/INTERNAL.bin
+
+
+4. Stage kernel8-rpi4.img
+-------------------------
+
+Questa funzione invia un'immagine kernel al MiniJV880 via TFTP.
+
+La GUI chiede di selezionare un file locale.
+Prima della conferma calcola e mostra:
+
+  - dimensione file;
+  - digest compatto MiniJV880.
+
+Il nome TFTP remoto è sempre:
+
+  kernel8-rpi4.img
+
+Il firmware lo salva come file di staging:
+
+  SD:/kernel8-rpi4.img.new
+
+Importante:
+
+  Questa operazione NON attiva il kernel.
+  Copia solo il nuovo kernel come file staged.
+
+Dopo l'upload, l'attivazione deve essere fatta dalle pagine HTTP kernel già
+presenti nel MiniJV880.
+
+La GUI mostra una barra di avanzamento reale basata sui byte confermati via TFTP.
+
+Il report finale include anche dimensione e digest del file inviato.
+
+
+5. Stage minijv880.ini
+----------------------
+
+Questa funzione invia un file INI al MiniJV880 via TFTP.
+
+La GUI chiede di selezionare un file locale.
+Prima della conferma calcola e mostra:
+
+  - dimensione file;
+  - digest compatto MiniJV880.
+
+Il nome TFTP remoto è sempre:
+
+  minijv880.ini
+
+Il firmware lo salva come file di staging:
+
+  SD:/minijv880.ini.new
+
+Importante:
+
+  Questa operazione NON applica l'INI.
+  Copia solo il nuovo INI come file staged.
+
+Dopo l'upload, review/apply deve essere eseguito dalle pagine HTTP INI già
+presenti nel MiniJV880.
+
+La GUI mostra una barra di avanzamento reale basata sui byte confermati via TFTP.
+
+Il report finale include anche dimensione e digest del file inviato.
+
+
+6. Calcolo digest MiniJV880 per un file
+---------------------------------------
+
+Questa utility calcola il digest compatto MiniJV880 per qualsiasi file locale.
+
+Può essere usata per:
+
+  - kernel8-rpi4.img;
+  - minijv880.ini;
+  - file .syx;
+  - file .bin Data Card;
+  - qualsiasi altro file.
+
+Il risultato mostrato include:
+
+  - nome file;
+  - path assoluto;
+  - dimensione in byte;
+  - digest MiniJV880 in formato 0xXXXXXXXX.
+
+Esempio:
+
+  MiniJV880 file digest
+  =====================
+
+  File:   kernel8-rpi4.img
+  Path:   /home/user/Mini-JV880pi/kernel8-rpi4.img
+  Size:   1240776 bytes
+
+  MiniJV880 digest:
+  0x1234ABCD
+
+La finestra digest è solo informativa e ha un solo pulsante Back.
+
+
+Algoritmo digest MiniJV880
+--------------------------
+
+Il digest MiniJV880 usato dallo strumento è un FNV-1a a 32 bit:
+
+  offset basis: 2166136261
+  prime:        16777619
+
+Formato mostrato:
+
+  0xXXXXXXXX
+
+Comando terminale equivalente:
+
+  python3 -c 'import sys; d=2166136261; data=open(sys.argv[1],"rb").read();
+  for b in data: d=((d ^ b) * 16777619) & 0xFFFFFFFF
+  print(f"0x{d:08X}")' kernel8-rpi4.img
+
+Nota:
+  questo digest è pensato come identificatore operativo rapido e leggibile.
+  Non sostituisce un hash crittografico come SHA-256 per verifiche di sicurezza.
+
+
+Backend Python TFTP
+-------------------
+
+Il file:
+
+  tools/minijv880_tftp_put.py
+
+implementa un piccolo client TFTP PUT lato PC.
+
+Motivo:
+
+  il client tftp standard non fornisce una barra di avanzamento affidabile e,
+  in alcuni casi, restituisce exit code 0 anche quando il server ha risposto
+  con un errore.
+
+Il backend Python conosce i byte confermati dai TFTP ACK e permette alla GUI di
+mostrare una vera barra di avanzamento.
+
+Uso diretto da terminale:
+
+  tools/minijv880_tftp_put.py 192.168.1.50 local_file remote_name
+
+Esempio .syx:
+
+  tools/minijv880_tftp_put.py 192.168.1.50 antarcti.syx 40-USER/antarcti.syx
+
+Esempio Data Card:
+
+  tools/minijv880_tftp_put.py 192.168.1.50 prova.bin CARD-RAM/prova.bin
+
+Esempio kernel:
+
+  tools/minijv880_tftp_put.py 192.168.1.50 kernel8-rpi4.img kernel8-rpi4.img
+
+Esempio INI:
+
+  tools/minijv880_tftp_put.py 192.168.1.50 minijv880.ini minijv880.ini
+
+Nota importante:
+  per file con dimensione multipla esatta di 512 byte, il client deve chiudere
+  correttamente il trasferimento senza inviare un ulteriore pacchetto finale
+  zero-length duplicato.
+
+  Nella versione di lavoro corrente, il client evita anche i falsi errori lato
+  GUI dovuti all'ultimo aggiornamento di progresso al 100% quando Zenity chiude
+  automaticamente la finestra. In questo modo si evitano falsi failure finali
+  tipo Broken pipe dopo un trasferimento che il firmware ha già completato
+  correttamente.
+
+
+Dipendenza HTTP
+---------------
+
+Per l'upload batch .syx, la GUI usa HTTP per:
+
+  - leggere la lista sottocartelle PN-JV80;
+  - verificare che la cartella di destinazione esista;
+  - determinare quali file esistono già e marcarli come SKIPPED.
+
+Endpoint usati per upload .syx:
+
+  http://<HOST>:8080/browse/PN-JV80
+  http://<HOST>:8080/browse/PN-JV80/<folder>
+
+Per il download Data Card, la GUI usa HTTP per leggere l'elenco dei file .bin
+disponibili:
+
+  http://<HOST>:8080/cardram-list
+
+Il trasferimento reale del download Data Card resta comunque eseguito via TFTP
+RRQ.
+
+Se HTTP non è disponibile, la GUI può offrire l'inserimento manuale della
+cartella per upload .syx o del nome file remoto per download Data Card, ma la
+diagnostica e la comodità di selezione saranno meno complete.
+
+L'upload Data Card, kernel, INI e digest non richiedono questi lookup
+HTTP browse/list per il loro normale funzionamento.
+
+
+Troubleshooting
+---------------
+
+Problema:
+  La GUI non parte.
+
+Controllare:
+  - zenity installato;
+  - python3 installato;
+  - curl installato;
+  - comando tftp installato;
+  - script eseguibili.
+
+Comandi:
+
+  sudo apt install zenity curl python3 tftp
+  chmod +x tools/minijv880_tftp_gui.sh tools/minijv880_tftp_put.py
+
+
+Problema:
+  La lista cartelle PN-JV80 non compare.
+
+Controllo da terminale:
+
+  curl --silent --show-error http://192.168.1.50:8080/browse/PN-JV80
+
+Se non risponde:
+  - verificare indirizzo IP;
+  - verificare Ethernet;
+  - verificare che il server HTTP MiniJV880 sia attivo;
+  - verificare la porta HTTP.
+
+
+Problema:
+  Una cartella non appare nell'elenco.
+
+Possibili cause:
+  - la cartella non esiste realmente sotto SD:/PN-JV80/;
+  - il nome non è visibile nella pagina HTTP browse;
+  - la cartella è Roland-PN, quindi viene esclusa intenzionalmente.
+
+
+Problema:
+  Un file viene marcato SKIPPED.
+
+Significato:
+  Il file è già presente nella cartella di destinazione.
+  Il no-overwrite sta funzionando correttamente.
+
+
+Problema:
+  Un file viene marcato FAILED con access violation dopo il preflight.
+
+Significato:
+  La GUI non ha visto il file nel listing HTTP, ma il firmware ha rifiutato la
+  scrittura TFTP.
+
+Possibili cause:
+  - listing HTTP stale;
+  - file creato da un altro processo;
+  - residuo .tmp problematico;
+  - problema di scrittura SD;
+  - rifiuto path lato firmware.
+
+
+Problema:
+  /cardram-list sembra ordinata in modo diverso dall'ordine di creazione.
+
+Significato:
+  la pagina è volutamente ordinata per nome file secondo ordine ASCII/C con
+  strcmp, non secondo ordine FAT della directory, ordine di creazione, ordine
+  locale o natural sort.
+
+Nota aggiuntiva:
+  l'elenco è paginato a 20 file .bin Data Card per pagina, ma l'ordinamento
+  resta coerente anche passando alla pagina successiva.
+
+
+Problema:
+  La lista file per download Data Card non compare.
+
+Controllo da terminale:
+
+  curl --silent --show-error http://192.168.1.50:8080/cardram-list
+
+Se non risponde:
+  - verificare indirizzo IP;
+  - verificare Ethernet;
+  - verificare che il server HTTP MiniJV880 sia attivo;
+  - verificare la porta HTTP;
+  - usare il fallback manuale del nome file remoto se necessario.
+
+
+Problema:
+  Rename CardRAM non eseguito.
+
+Controllare:
+  - che il file sorgente esista ancora sotto SD:/CARD-RAM/;
+  - che il nuovo nome sia un semplice nome file .bin;
+  - che il nuovo nome non esista già;
+  - che current.txt possa essere aggiornato se il file sorgente era selezionato
+    per il prossimo boot.
+
+
+Problema:
+  Delete CardRAM rifiutato.
+
+Significato:
+  La cancellazione è intenzionalmente conservativa. Viene rifiutata se la card
+  è selezionata per il prossimo boot in current.txt o se corrisponde alla Data
+  Card attiva a runtime.
+
+Azione:
+  Selezionare prima un'altra Data Card. Se la card era attiva a runtime, fare
+  reboot su un'altra card prima di cancellare il vecchio file.
+
+
+Problema:
+  Il download Data Card fallisce o viene rifiutato.
+
+Controllare:
+  - che il nome remoto sia un singolo file .bin;
+  - che il file esista sotto SD:/CARD-RAM/;
+  - che il file sia esattamente di 32768 byte;
+  - che il firmware MiniJV880 includa il supporto TFTP RRQ per CARD-RAM;
+  - che la connessione Ethernet sia stabile.
+
+Nota:
+  Il download HTTP resta non offerto per le immagini Data Card perché i file
+  .bin normali sono da 32768 byte e superano il buffer HTTP attuale da 8192
+  byte. Usare invece l'azione download Data Card via TFTP.
+
+
+Problema:
+  Kernel o INI vengono caricati, ma dopo il reboot non cambia nulla.
+
+Normale:
+  kernel e INI vengono solo staged.
+  Usare le rispettive pagine HTTP per activate/apply.
+
+
+Problema:
+  Il digest non coincide.
+
+Controllare:
+  - che il digest sia stato calcolato sul file locale corretto;
+  - che il file non sia stato ricompilato/modificato dopo il calcolo;
+  - che si stia usando il digest MiniJV880 FNV-1a 32-bit, non SHA-256.
+
+
+Test consigliati dopo modifiche future
+--------------------------------------
+
+Dopo modifiche firmware o tool, verificare:
+
+  1. Upload batch .syx verso una cartella vuota.
+  2. Upload batch ripetuto verso la stessa cartella:
+       tutti i file già presenti devono risultare SKIPPED.
+  3. Upload batch verso cartella parzialmente popolata:
+       alcuni OK, alcuni SKIPPED.
+  4. Cartella inesistente:
+       errore chiaro prima del TFTP.
+  5. Roland-PN:
+       non deve essere selezionabile.
+  6. Upload Data Card valido:
+       file da 32768 byte, nome nuovo, progress reale, file finale creato in
+       SD:/CARD-RAM/, nessun .tmp residuo.
+  7. Upload Data Card con size errata:
+       nessun file finale creato, cleanup corretto del .tmp.
+  8. Upload Data Card con nome già esistente:
+       no-overwrite confermato.
+  9. Download Data Card di un file .bin esistente da 32768 byte selezionato
+       dall'elenco ricavato via HTTP:
+       successo, file locale presente, digest mostrato, check-card OK.
+ 10. Fallback download Data Card quando /cardram-list non è disponibile:
+       inserimento manuale del nome remoto funzionante, oppure cancellazione
+       pulita.
+ 11. Download Data Card con nome remoto invalido o mancante:
+       report di errore chiaro, nessun falso successo.
+ 12. Pagina HTTP /cardram-list:
+       ordinamento ASCII, paginazione coerente oltre 20 file e
+       link Previous/Next corretti.
+ 13. Upload Data Card con nome remoto invalido:
+       blocco lato GUI prima del TFTP.
+ 14. Rename HTTP CardRAM:
+       rename di file normale, rename di file selezionato per next boot,
+       rifiuto nome identico, rifiuto destinazione già esistente e update di
+       current.txt.
+ 15. Delete HTTP CardRAM:
+       delete di file normale, rifiuto file selezionato per next boot e rifiuto
+       file attivo a runtime.
+ 16. Verificare che il download HTTP resti non offerto per file .bin CardRAM.
+ 17. Staging kernel:
+       digest visibile prima della conferma, progress reale e creazione di
+       SD:/kernel8-rpi4.img.new.
+ 18. Staging INI:
+       digest visibile prima della conferma, progress reale e creazione di
+       SD:/minijv880.ini.new.
+ 19. Utility digest:
+       il valore deve coincidere con il comando terminale equivalente.
+ 20. Nessuna regressione nelle pagine HTTP kernel/INI/CardRAM.
+ 21. Nessun falso errore finale Broken pipe nella GUI dopo upload Data Card
+       completato con successo.
+
+
+Comandi git utili
+-----------------
+
+Verifica stato/checkpoint:
+
+  git log --oneline --decorate -n 5
+
+Checkpoint di base rilevante:
+
+  checkpoint-cardram-http-management-working
+
+Ritorno allo stato base consolidato:
+
+  git reset --hard checkpoint-cardram-http-management-working
+  git submodule update --init --recursive
+
+
+Note operative finali
+---------------------
+
+Questa funzione è pensata per Ethernet.
+
+Lo sviluppo Wi-Fi è congelato per ora; le operazioni di manutenzione dovrebbero
+usare Ethernet.
+
+Lo strumento PC non modifica direttamente il firmware. Per kernel e INI esegue
+solo lo staging; activate/apply restano intenzionalmente separati e vengono
+eseguiti dalle pagine HTTP del MiniJV880.
+
+Per la Data Card, invece, l'upload crea direttamente il file finale nella
+collection SD:/CARD-RAM/ quando il trasferimento TFTP è valido e completo.
+
+La gestione HTTP CardRAM consente inoltre di selezionare una card per il
+prossimo boot, rinominare file .bin esistenti e cancellare file .bin sicuri da
+cancellare. Il download non è offerto via HTTP perché le Data Card valide
+superano la dimensione del buffer HTTP attuale. Il download Data Card è
+disponibile tramite l'azione TFTP dedicata.

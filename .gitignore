@@ -1,0 +1,70 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+*.O
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Toolchain
+gcc-*
+
+# Build artefacts
+kernel*
+MiniJV880*.zip
+sdcard
+*.zip
+*.img
+
+# Editor related files
+*.swp
+*.swo
+.vscode/
+
+# OS metadata
+.DS_Store
+
+# External dependencies / submodule working trees
+CMSIS_5/
+circle-stdlib/
+
+# MiniJV880 local/private sound and card data
+*.bin
+*.syx
+*.SYX
+*.mid
+*.MID
+*.patchslot
+CARD-RAM/
+PN-JV80/
+roms/
+
+# Do not publish local JV-880 ROM/container/placeholder files
+/jv880
+/jv880*

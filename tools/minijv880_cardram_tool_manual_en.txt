@@ -1,0 +1,889 @@
+MiniJV880 CardRAM Tool - Operational Manual
+===========================================
+
+Date: 2026-04-29
+Tool: tools/minijv880_cardram_tool.py
+GUI:  tools/minijv880_cardram_gui.py
+Scope: PC-side inspection, comparison and safe editing of MiniJV880 / JV-880 CardRAM .bin files.
+
+This manual documents the current CardRAM tool after functional validation on MiniJV880:
+- the MiniJV880 sees the edited CardRAM image;
+- the edited card can be selected and loaded;
+- the resulting sound is correct.
+
+
+1. CardRAM file model
+---------------------
+
+The tool expects standard CardRAM image files of exactly 32768 bytes.
+
+Current decoded layout:
+
+  Header:
+    0x0000 - 0x001F
+    32 bytes
+
+  Performance area:
+    0x0020 - 0x0CDF
+    16 slots
+    slot size: 0x00CC / 204 bytes
+    name field: first 12 bytes of each slot
+
+  Patch area:
+    0x0CE0 - 0x675F
+    64 slots
+    slot size: 0x016A / 362 bytes
+    name field: first 12 bytes of each slot
+
+  Rhythm area:
+    0x6760 - 0x7FFF
+    6304 bytes
+    copied and checked as raw data only
+    internal structure is not decoded yet
+
+The tool uses a MiniJV880 FNV-1a 32-bit digest for quick identity checks.
+
+
+2. Safety rules
+---------------
+
+The tool is intentionally conservative.
+
+General rules:
+
+  - Input CardRAM files must be 32768 bytes.
+  - Editing commands never modify the source file in place.
+  - Editing commands require --output.
+  - --output must not already exist.
+  - --output must not be the same path as any input file.
+  - Name edits allow printable ASCII only.
+  - Performance and Patch names are limited to 12 bytes.
+  - Rhythm data is not decoded; it can only be copied as a raw area.
+
+Recommended file naming:
+
+  original.bin
+  original_work.bin
+  original_patch01_renamed.bin
+  original_patch01_02_swapped.bin
+  original_from_source_patches.bin
+
+Never overwrite your known-good CardRAM image. Keep at least one original, tested image untouched.
+
+
+3. Basic command form
+---------------------
+
+Run commands from the MiniJV880 repository root:
+
+  tools/minijv880_cardram_tool.py <command> [arguments]
+
+Most reports can be saved with:
+
+  --report report.txt
+
+Example:
+
+  tools/minijv880_cardram_tool.py check-card prova.bin --report prova_check.txt
+
+
+
+
+3.1 Graphical CardRAM Manager (GUI)
+-----------------------------------
+
+A graphical manager is also available:
+
+  tools/minijv880_cardram_gui.py
+
+Run it from the MiniJV880 repository root:
+
+  python3 tools/minijv880_cardram_gui.py
+
+The GUI is intended for safe CardRAM composition and management, not for deep
+Patch, Performance or Rhythm parameter editing.
+
+GUI model:
+
+  - Open base/destination card loads a CardRAM image and creates a working copy in RAM.
+  - Source cards are read-only.
+  - Copy actions copy data from source cards or from the working card into the working destination.
+  - Edit actions apply only to slots selected in the Working destination lists.
+  - Rhythm actions treat the Rhythm area as one complete raw block.
+  - Restore actions copy data from the loaded base card back into the working destination.
+  - No CardRAM .bin file is written until Save working card is used.
+
+The Source lists include a State column:
+
+  INITIAL  = source slot is empty / initial
+  blank    = source slot is occupied / normal
+
+The Working destination lists use the State column to show useful RAM-side
+information such as INITIAL and changed slots.
+
+Changed items:
+
+  The GUI tracks unsaved changes as changed items. A changed item can be:
+
+    - one Performance slot;
+    - one Patch slot;
+    - the complete raw Rhythm area.
+
+  The raw Rhythm area is shown as:
+
+    Rhythm / 001 / raw block / raw block
+
+  A Rhythm-only change marks the working destination as modified in memory.
+  It is shown in the Changed items list, included in saved change reports,
+  protected by the unsaved-changes warning, and can be restored from the base card.
+
+Working Rhythm area reports:
+
+  The Reports window includes:
+
+    - Working Rhythm area info;
+    - Source vs working Rhythm compare;
+    - Copy source Rhythm -> working.
+
+  Copy source Rhythm -> working replaces the complete raw Rhythm area
+  0x6760..0x7FFF in RAM only. It does not decode individual Rhythm parameters,
+  does not recalculate internal control/check bytes, and does not write a file.
+
+Restore behavior:
+
+  - Restore selected from base restores the selected changed item.
+  - Restore changed items... can restore Performance, Patch, Perf+Patch, Rhythm, or All.
+  - Restoring Rhythm copies the complete raw Rhythm area from the loaded base card.
+  - All restore operations affect the working RAM copy only.
+  - Save working card is still required to write a CardRAM .bin file.
+
+Optional double-click launcher on Linux:
+
+A small .desktop launcher can be created if you want to start the GUI without
+opening a terminal. Use paths that match your own local repository.
+
+Example file:
+
+  ~/Desktop/MiniJV880-CardRAM-GUI.desktop
+
+Example contents:
+
+  [Desktop Entry]
+  Type=Application
+  Name=MiniJV880 CardRAM GUI
+  Comment=Open MiniJV880 CardRAM Manager
+  Exec=python3 /home/user/projects/Mini-JV880pi/tools/minijv880_cardram_gui.py
+  Path=/home/user/projects/Mini-JV880pi/tools
+  Terminal=false
+  Categories=Utility;
+
+Then make it executable:
+
+  chmod +x ~/Desktop/MiniJV880-CardRAM-GUI.desktop
+
+Some desktop environments may also require marking the launcher as trusted or
+selecting "Allow Launching" from the file manager.
+
+The Path entry is important because minijv880_cardram_gui.py imports
+minijv880_cardram_tool.py from the same tools directory.
+
+4. Read-only commands
+---------------------
+
+These commands do not create or modify CardRAM .bin files.
+
+4.1 info
+
+Show file size, validity and digest.
+
+  tools/minijv880_cardram_tool.py info prova.bin
+
+Use this first when receiving an unknown .bin file.
+
+
+4.2 check-card
+
+Run structural checks on a CardRAM image.
+
+  tools/minijv880_cardram_tool.py check-card prova.bin
+
+Checks include:
+
+  - 32768-byte size
+  - complete Header / Performance / Patch / Rhythm areas
+  - 16 Performance slots
+  - 64 Patch slots
+  - printable/incomplete name-field issues
+  - duplicate names inside the same area
+
+Expected healthy result:
+
+  Status: OK
+  Performance slots found: 16/16
+  Patch slots found:       64/64
+  Performance non-printable/incomplete name fields: 0
+  Patch non-printable/incomplete name fields:       0
+
+
+4.3 summary
+
+Show a compact but complete summary: global digest, area digests, Performance names and Patch names.
+
+  tools/minijv880_cardram_tool.py summary prova.bin
+  tools/minijv880_cardram_tool.py summary prova.bin --report prova_summary.txt
+
+Use this to document a card before and after editing.
+
+
+4.4 rhythm-info
+
+Show raw Rhythm area offset, size, end offset and digest.
+
+  tools/minijv880_cardram_tool.py rhythm-info prova.bin
+
+Expected area:
+
+  start:  0x6760
+  size:   6304 bytes
+  end:    0x7FFF
+
+The Rhythm area is not decoded yet.
+
+
+4.4.1 compare-rhythm
+
+Compare only the raw Rhythm area between two CardRAM files.
+
+  tools/minijv880_cardram_tool.py compare-rhythm left.bin right.bin
+
+This command does not compare Performance or Patch slots. It is useful when
+two cards may differ in other areas but you only want to know whether their
+Rhythm data is identical.
+
+Show all different Rhythm ranges:
+
+  tools/minijv880_cardram_tool.py compare-rhythm left.bin right.bin --max-ranges 0
+
+Expected exit codes:
+
+  0 = Rhythm areas are equal
+  1 = Rhythm areas are different
+  2 = file or CardRAM validation error
+
+
+4.4.2 rhythm-diff
+
+Like compare-rhythm, but also shows hex/text previews of Rhythm differences.
+
+  tools/minijv880_cardram_tool.py rhythm-diff left.bin right.bin
+
+Optional preview size:
+
+  tools/minijv880_cardram_tool.py rhythm-diff left.bin right.bin --preview-bytes 64
+
+This is mainly an investigation tool for studying byte-level Rhythm changes.
+It does not decode the internal Rhythm structure and does not modify any file.
+
+
+4.5 list-performances
+
+List Performance slots.
+
+  tools/minijv880_cardram_tool.py list-performances prova.bin
+
+Optional slot limit:
+
+  tools/minijv880_cardram_tool.py list-performances prova.bin --slots 4
+
+
+4.6 list-patches
+
+List Patch slots.
+
+  tools/minijv880_cardram_tool.py list-patches prova.bin
+
+Optional slot limit:
+
+  tools/minijv880_cardram_tool.py list-patches prova.bin --slots 8
+
+
+4.7 find-name
+
+Search Performance and Patch names.
+
+Contains search:
+
+  tools/minijv880_cardram_tool.py find-name Empty_plus_perf_patch.bin lead
+
+Exact, case-insensitive search:
+
+  tools/minijv880_cardram_tool.py find-name Empty_plus_perf_patch.bin "JV Strings" --exact
+
+Useful before copy, swap or rename operations.
+
+
+4.8 slot-info
+
+Inspect one Performance or Patch slot.
+
+Performance example:
+
+  tools/minijv880_cardram_tool.py slot-info Empty_plus_perf_patch.bin --area performance --slot 1
+
+Patch example:
+
+  tools/minijv880_cardram_tool.py slot-info Empty_plus_perf_patch.bin --area patch --slot 1
+
+Patch slot 64 example:
+
+  tools/minijv880_cardram_tool.py slot-info Empty_plus_perf_patch.bin --area patch --slot 64
+
+Optional preview size:
+
+  tools/minijv880_cardram_tool.py slot-info Empty_plus_perf_patch.bin --area patch --slot 1 --preview-bytes 128
+
+Valid ranges:
+
+  performance: 1..16
+  patch:       1..64
+
+
+4.9 compare
+
+Compare two full CardRAM files byte-for-byte.
+
+  tools/minijv880_cardram_tool.py compare left.bin right.bin
+
+Use this after an edit to verify whether the output equals another known file.
+
+Show all different ranges:
+
+  tools/minijv880_cardram_tool.py compare left.bin right.bin --max-ranges 0
+
+
+4.10 diff
+
+Like compare, but also shows hex/text previews of different ranges.
+
+  tools/minijv880_cardram_tool.py diff left.bin right.bin
+
+Useful when investigating unexpected differences.
+
+
+4.11 compare-performances
+
+Compare Performance slots only.
+
+  tools/minijv880_cardram_tool.py compare-performances edited.bin reference.bin
+
+Optional slot limit:
+
+  tools/minijv880_cardram_tool.py compare-performances edited.bin reference.bin --slots 4
+
+
+4.12 compare-patches
+
+Compare Patch slots only.
+
+  tools/minijv880_cardram_tool.py compare-patches edited.bin reference.bin
+
+Optional slot limit:
+
+  tools/minijv880_cardram_tool.py compare-patches edited.bin reference.bin --slots 8
+
+
+4.13 compare-names
+
+Compare only Performance and Patch names.
+
+  tools/minijv880_cardram_tool.py compare-names edited.bin original.bin
+
+This is useful after set-*-name or import-names.
+
+
+4.14 scan-names
+
+Scan the whole card for printable ASCII runs.
+
+  tools/minijv880_cardram_tool.py scan-names prova.bin
+
+Options:
+
+  --min-length N
+  --max-results N
+
+This is mainly an investigation tool.
+
+
+4.15 probe-stride
+
+Probe repeated name-like entries at a custom start/stride.
+
+  tools/minijv880_cardram_tool.py probe-stride prova.bin \
+    --start 0x0CE0 \
+    --stride 0x016A \
+    --count 64 \
+    --name-bytes 12
+
+This is mainly an investigation tool and should not normally be needed during daily use.
+
+
+5. Editing commands
+-------------------
+
+All editing commands write a new CardRAM file with --output. Original files are not modified.
+
+
+5.1 set-performance-name
+
+Change one Performance name.
+
+  tools/minijv880_cardram_tool.py set-performance-name Empty_plus_perf_patch.bin \
+    --slot 1 \
+    --name "TEST PERF" \
+    --output Empty_plus_perf_patch_perf_renamed.bin
+
+Rules:
+
+  - slot: 1..16
+  - name: printable ASCII only
+  - maximum name length: 12 characters/bytes
+
+Verify:
+
+  tools/minijv880_cardram_tool.py list-performances Empty_plus_perf_patch_perf_renamed.bin | head -n 20
+  tools/minijv880_cardram_tool.py compare-patches Empty_plus_perf_patch_perf_renamed.bin Empty_plus_perf_patch.bin
+  tools/minijv880_cardram_tool.py rhythm-info Empty_plus_perf_patch_perf_renamed.bin
+
+
+5.2 set-patch-name
+
+Change one Patch name.
+
+  tools/minijv880_cardram_tool.py set-patch-name Empty_plus_perf_patch.bin \
+    --slot 1 \
+    --name "TEST PATCH" \
+    --output Empty_plus_perf_patch_renamed.bin
+
+Rules:
+
+  - slot: 1..64
+  - name: printable ASCII only
+  - maximum name length: 12 characters/bytes
+
+Verify:
+
+  tools/minijv880_cardram_tool.py list-patches Empty_plus_perf_patch_renamed.bin | head -n 20
+  tools/minijv880_cardram_tool.py compare-performances Empty_plus_perf_patch_renamed.bin Empty_plus_perf_patch.bin
+  tools/minijv880_cardram_tool.py rhythm-info Empty_plus_perf_patch_renamed.bin
+
+
+5.3 swap-performances
+
+Swap two complete Performance slots.
+
+  tools/minijv880_cardram_tool.py swap-performances Empty_plus_perf_patch.bin \
+    --slot-a 1 \
+    --slot-b 2 \
+    --output Empty_plus_perf_patch_perf_swapped.bin
+
+Rules:
+
+  - slot-a and slot-b: 1..16
+  - slots must be different
+
+Verify:
+
+  tools/minijv880_cardram_tool.py list-performances Empty_plus_perf_patch_perf_swapped.bin | head -n 22
+  tools/minijv880_cardram_tool.py compare-patches Empty_plus_perf_patch_perf_swapped.bin Empty_plus_perf_patch.bin
+  tools/minijv880_cardram_tool.py rhythm-info Empty_plus_perf_patch_perf_swapped.bin
+
+
+5.4 swap-patches
+
+Swap two complete Patch slots.
+
+  tools/minijv880_cardram_tool.py swap-patches Empty_plus_perf_patch.bin \
+    --slot-a 1 \
+    --slot-b 2 \
+    --output Empty_plus_perf_patch_swapped.bin
+
+Rules:
+
+  - slot-a and slot-b: 1..64
+  - slots must be different
+
+Verify:
+
+  tools/minijv880_cardram_tool.py list-patches Empty_plus_perf_patch_swapped.bin | head -n 22
+  tools/minijv880_cardram_tool.py compare-performances Empty_plus_perf_patch_swapped.bin Empty_plus_perf_patch.bin
+  tools/minijv880_cardram_tool.py rhythm-info Empty_plus_perf_patch_swapped.bin
+
+
+5.5 copy-performance
+
+Copy one Performance slot from a source card to a destination card.
+
+  tools/minijv880_cardram_tool.py copy-performance prova.bin Empty.bin \
+    --source-slot 1 \
+    --target-slot 1 \
+    --output Empty_plus_perf1.bin
+
+Rules:
+
+  - source-slot: 1..16
+  - target-slot: 1..16
+  - source and destination files are not modified
+
+
+5.6 copy-patch
+
+Copy one Patch slot from a source card to a destination card.
+
+  tools/minijv880_cardram_tool.py copy-patch prova.bin Empty.bin \
+    --source-slot 1 \
+    --target-slot 1 \
+    --output Empty_plus_patch1.bin
+
+Rules:
+
+  - source-slot: 1..64
+  - target-slot: 1..64
+  - source and destination files are not modified
+
+
+5.7 copy-performance-bank
+
+Copy the full 16-slot Performance bank.
+
+  tools/minijv880_cardram_tool.py copy-performance-bank prova.bin Empty.bin \
+    --output Empty_plus_performance_bank.bin
+
+This modifies only the Performance area in the output card.
+
+Verify:
+
+  tools/minijv880_cardram_tool.py compare-performances Empty_plus_performance_bank.bin prova.bin
+  tools/minijv880_cardram_tool.py compare-patches Empty_plus_performance_bank.bin Empty.bin
+  tools/minijv880_cardram_tool.py rhythm-info Empty_plus_performance_bank.bin
+
+
+5.8 copy-patch-bank
+
+Copy the full 64-slot Patch bank.
+
+  tools/minijv880_cardram_tool.py copy-patch-bank prova.bin Empty.bin \
+    --output Empty_plus_patch_bank.bin
+
+This modifies only the Patch area in the output card.
+
+Verify:
+
+  tools/minijv880_cardram_tool.py compare-patches Empty_plus_patch_bank.bin prova.bin
+  tools/minijv880_cardram_tool.py compare-performances Empty_plus_patch_bank.bin Empty.bin
+  tools/minijv880_cardram_tool.py rhythm-info Empty_plus_patch_bank.bin
+
+
+5.9 copy-rhythm
+
+Copy the raw Rhythm area.
+
+  tools/minijv880_cardram_tool.py copy-rhythm prova.bin Empty.bin \
+    --output Empty_plus_rhythm_from_prova.bin
+
+This copies 0x6760..0x7FFF as raw data. The internal Rhythm structure is not decoded.
+
+Use this only when you intentionally want the complete Rhythm area from another card.
+
+
+5.10 compose-card
+
+Create a new card from a base card and optional source areas.
+
+Example: start from Empty.bin, take Performance and Patch banks from prova.bin, keep Rhythm from Empty.bin:
+
+  tools/minijv880_cardram_tool.py compose-card Empty.bin \
+    --performance-source prova.bin \
+    --patch-source prova.bin \
+    --output Empty_plus_perf_patch.bin
+
+Optional sources:
+
+  --performance-source source.bin
+  --patch-source source.bin
+  --rhythm-source source.bin
+
+At least one source option is required.
+
+Verify:
+
+  tools/minijv880_cardram_tool.py compare-performances Empty_plus_perf_patch.bin prova.bin
+  tools/minijv880_cardram_tool.py compare-patches Empty_plus_perf_patch.bin prova.bin
+  tools/minijv880_cardram_tool.py rhythm-info Empty_plus_perf_patch.bin
+
+
+5.11 export-names
+
+Export Performance and Patch names to TSV or CSV.
+
+TSV:
+
+  tools/minijv880_cardram_tool.py export-names Empty_plus_perf_patch.bin \
+    --output Empty_plus_perf_patch_names.tsv
+
+CSV:
+
+  tools/minijv880_cardram_tool.py export-names Empty_plus_perf_patch.bin \
+    --format csv \
+    --output Empty_plus_perf_patch_names.csv
+
+Rows exported:
+
+  16 Performance rows
+  64 Patch rows
+  total: 80 rows
+
+TSV is recommended for editing and reimporting.
+
+
+5.12 import-names
+
+Import edited Performance and Patch names from a TSV file and write a new card.
+
+Workflow:
+
+  cp Empty_plus_perf_patch_names.tsv Empty_plus_perf_patch_names_edit.tsv
+
+  sed -i 's/Syn Lead/SYN TEST/' Empty_plus_perf_patch_names_edit.tsv
+  sed -i 's/JV Strings/JV TEST/' Empty_plus_perf_patch_names_edit.tsv
+
+  tools/minijv880_cardram_tool.py import-names Empty_plus_perf_patch.bin \
+    Empty_plus_perf_patch_names_edit.tsv \
+    --changed-only \
+    --output Empty_plus_perf_patch_import_names.bin
+
+Recommended option:
+
+  --changed-only
+
+This keeps the report readable when only a few names were changed in an 80-row TSV file.
+
+Verify:
+
+  tools/minijv880_cardram_tool.py compare-names Empty_plus_perf_patch_import_names.bin Empty_plus_perf_patch.bin || true
+  tools/minijv880_cardram_tool.py check-card Empty_plus_perf_patch_import_names.bin
+
+No-op test:
+
+  tools/minijv880_cardram_tool.py import-names Empty_plus_perf_patch.bin \
+    Empty_plus_perf_patch_names.tsv \
+    --changed-only \
+    --output Empty_plus_perf_patch_import_no_changes.bin
+
+Expected:
+
+  No name changes found.
+  Rows processed: 80
+  Rows shown:     0
+  Names changed:  0
+
+
+6. Recommended safe workflows
+-----------------------------
+
+6.1 Inspect an unknown CardRAM file
+
+  tools/minijv880_cardram_tool.py info unknown.bin
+  tools/minijv880_cardram_tool.py check-card unknown.bin
+  tools/minijv880_cardram_tool.py summary unknown.bin --report unknown_summary.txt
+
+Proceed only if check-card reports Status: OK.
+
+
+6.2 Find a Patch or Performance before editing
+
+  tools/minijv880_cardram_tool.py find-name card.bin lead
+  tools/minijv880_cardram_tool.py find-name card.bin "JV Strings" --exact
+  tools/minijv880_cardram_tool.py slot-info card.bin --area patch --slot 1
+
+
+6.3 Rename one Patch safely
+
+  tools/minijv880_cardram_tool.py set-patch-name card.bin \
+    --slot 1 \
+    --name "NEW NAME" \
+    --output card_patch1_renamed.bin
+
+  tools/minijv880_cardram_tool.py compare-names card_patch1_renamed.bin card.bin || true
+  tools/minijv880_cardram_tool.py check-card card_patch1_renamed.bin
+
+If Status is OK, upload the new file to MiniJV880.
+
+
+6.4 Swap two Patches safely
+
+  tools/minijv880_cardram_tool.py swap-patches card.bin \
+    --slot-a 1 \
+    --slot-b 2 \
+    --output card_patch01_02_swapped.bin
+
+  tools/minijv880_cardram_tool.py list-patches card_patch01_02_swapped.bin | head -n 22
+  tools/minijv880_cardram_tool.py check-card card_patch01_02_swapped.bin
+
+
+6.5 Build a card from another card's Performance/Patch banks
+
+  tools/minijv880_cardram_tool.py compose-card Empty.bin \
+    --performance-source source.bin \
+    --patch-source source.bin \
+    --output Empty_plus_source_perf_patch.bin
+
+  tools/minijv880_cardram_tool.py compare-performances Empty_plus_source_perf_patch.bin source.bin
+  tools/minijv880_cardram_tool.py compare-patches Empty_plus_source_perf_patch.bin source.bin
+  tools/minijv880_cardram_tool.py check-card Empty_plus_source_perf_patch.bin
+
+
+6.6 Batch rename using TSV
+
+  tools/minijv880_cardram_tool.py export-names card.bin --output card_names.tsv
+  cp card_names.tsv card_names_edit.tsv
+
+Edit only the name column, keeping:
+
+  area
+  slot
+  name
+
+Then import:
+
+  tools/minijv880_cardram_tool.py import-names card.bin card_names_edit.tsv \
+    --changed-only \
+    --output card_names_imported.bin
+
+Validate:
+
+  tools/minijv880_cardram_tool.py compare-names card_names_imported.bin card.bin || true
+  tools/minijv880_cardram_tool.py check-card card_names_imported.bin
+
+
+7. Upload and MiniJV880 validation workflow
+------------------------------------------
+
+After creating a modified .bin:
+
+1. Run structural checks on PC:
+
+   tools/minijv880_cardram_tool.py check-card edited.bin
+
+2. Optionally create a permanent report:
+
+   tools/minijv880_cardram_tool.py summary edited.bin --report edited_summary.txt
+
+3. Upload the file via the MiniJV880 TFTP helper or TFTP command to SD:/CARD-RAM/.
+
+   The exact upload command depends on your current TFTP helper workflow.
+   Use a new remote filename first, for example:
+
+     CARD-RAM/edited_test.bin
+
+4. Open the MiniJV880 HTTP CardRAM list page.
+
+5. Select the uploaded card.
+
+6. Confirm that MiniJV880 sees the card and loads it.
+
+7. Test the sound.
+
+8. Keep the original known-good card until the edited card has been tested.
+
+
+8. Troubleshooting
+------------------
+
+8.1 The tool says invalid CardRAM size
+
+The file is not exactly 32768 bytes. Do not upload it as a CardRAM image.
+
+Use:
+
+  tools/minijv880_cardram_tool.py info file.bin
+
+
+8.2 Output file already exists
+
+This is intentional. Choose a new output filename or manually delete the previous test output.
+
+
+8.3 Name is too long
+
+Performance and Patch names are 12 bytes maximum.
+
+Use shorter printable ASCII names.
+
+
+8.4 Non-ASCII or accented names fail
+
+The current CardRAM name fields are handled as printable ASCII only.
+
+Avoid accented characters and special Unicode symbols.
+
+
+8.5 compare returns non-zero
+
+This is normal when files are different.
+
+For scripted checks, use:
+
+  tools/minijv880_cardram_tool.py compare-names edited.bin original.bin || true
+
+
+8.6 A modified card does not behave as expected
+
+Do not continue editing that file.
+
+Recommended rollback:
+
+  - select the original known-good card on MiniJV880;
+  - compare edited vs. original:
+
+    tools/minijv880_cardram_tool.py compare edited.bin original.bin
+    tools/minijv880_cardram_tool.py diff edited.bin original.bin
+    tools/minijv880_cardram_tool.py check-card edited.bin
+
+  - recreate the edit from the original with one small change only.
+
+
+9. Current limits
+-----------------
+
+The tool does not decode or edit individual Patch parameters.
+The tool does not decode or edit individual Performance parameters, except the 12-byte name field.
+The tool does not decode or edit the Rhythm structure internally.
+CSV export exists, but TSV is the recommended format for import.
+A GUI is available for safe CardRAM composition and management; the CLI remains the recommended tool for scripted and highly controlled workflows.
+
+
+10. Pre-consolidation checklist
+-------------------------------
+
+Before committing changes:
+
+  tools/minijv880_cardram_tool.py check-card edited.bin
+  tools/minijv880_cardram_tool.py summary edited.bin --report edited_summary.txt
+
+If the edit was a rename:
+
+  tools/minijv880_cardram_tool.py compare-names edited.bin original.bin || true
+
+If the edit was a copy/swap/compose operation:
+
+  tools/minijv880_cardram_tool.py compare-performances edited.bin reference.bin
+  tools/minijv880_cardram_tool.py compare-patches edited.bin reference.bin
+  tools/minijv880_cardram_tool.py rhythm-info edited.bin
+
+After MiniJV880 real-world validation:
+
+  git status
+  git add tools/minijv880_cardram_tool.py tools/minijv880_cardram_gui.py tools/minijv880_cardram_tool_manual_en.txt tools/minijv880_cardram_tool_manual_it.txt
+  git commit -m "Update CardRAM tool and GUI manuals"
+
