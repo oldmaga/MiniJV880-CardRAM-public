@@ -22,7 +22,7 @@
 
 #include "config.h"
 #include "uibuttons.h"
-#include <sensor/ky040.h>
+#include "robustencoder.h"
 #include <display/hd44780device.h>
 #include <display/ssd1306device.h>
 #include "drivers/ssd1306device24.h"
@@ -89,8 +89,8 @@ public:
 
 private:
 
-	void EncoderEventHandler (CKY040::TEvent Event);
-	static void EncoderEventStub (CKY040::TEvent Event, void *pParam);
+	void EncoderEventHandler (CRobustEncoder::TEvent Event);
+	static void EncoderEventStub (CRobustEncoder::TEvent Event, void *pParam);
 	void UIButtonsEventHandler (CUIButton::BtnEvent Event);
 	static void UIButtonsEventStub (CUIButton::BtnEvent Event, void *pParam);
 
@@ -109,7 +109,7 @@ private:
 	
 	CUIButtons *m_pUIButtons;
 
-	CKY040 *m_pRotaryEncoder;
+	CRobustEncoder *m_pRotaryEncoder;
 	bool m_bSwitchPressed;
 
 	unsigned m_lastTick;

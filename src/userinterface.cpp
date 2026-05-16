@@ -115,7 +115,7 @@ bool CUserInterface::Initialize (void)
 
 	if (m_pConfig->GetEncoderEnabled ())
 	{
-		m_pRotaryEncoder = new CKY040 (m_pConfig->GetEncoderPinClock (),
+		m_pRotaryEncoder = new CRobustEncoder (m_pConfig->GetEncoderPinClock (),
 					       m_pConfig->GetEncoderPinData (),
 					       //m_pConfig->GetButtonPinEnter (),
 					       0,    //---modifica---//
@@ -137,6 +137,8 @@ bool CUserInterface::Initialize (void)
 
 void CUserInterface::Process (void)
 {
+    DebugTX::Poll();
+
     m_pMiniJV880->mcu.lcd.LCD_Update();
 
     if (m_pLCDBuffered)
@@ -484,7 +486,7 @@ void CUserInterface::LCDWrite (const char *pString)
 	}
 }
 
-void CUserInterface::EncoderEventHandler(CKY040::TEvent Event)
+void CUserInterface::EncoderEventHandler(CRobustEncoder::TEvent Event)
 {
 
     // ==========================================
@@ -494,7 +496,7 @@ void CUserInterface::EncoderEventHandler(CKY040::TEvent Event)
     {
         switch (Event)
         {
-        case CKY040::EventClockwise:
+        case CRobustEncoder::EventClockwise:
             if (m_pMiniJV880->IsSYXMenuActive())
             {
                 m_pMiniJV880->NextSYX();
@@ -529,7 +531,7 @@ void CUserInterface::EncoderEventHandler(CKY040::TEvent Event)
             }
             break;
 
-        case CKY040::EventCounterclockwise:
+        case CRobustEncoder::EventCounterclockwise:
             if (m_pMiniJV880->IsSYXMenuActive())
             {
                 m_pMiniJV880->PrevSYX();
@@ -564,15 +566,15 @@ void CUserInterface::EncoderEventHandler(CKY040::TEvent Event)
             }
             break;
 
-        case CKY040::EventSwitchDown:
+        case CRobustEncoder::EventSwitchDown:
             m_bSwitchPressed = true;
             break;
 
-        case CKY040::EventSwitchUp:
+        case CRobustEncoder::EventSwitchUp:
             m_bSwitchPressed = false;
             break;
 
-        case CKY040::EventSwitchHold:
+        case CRobustEncoder::EventSwitchHold:
             if (m_pRotaryEncoder->GetHoldSeconds() >= 120)
             {
                 delete m_pLCD;
@@ -592,29 +594,29 @@ void CUserInterface::EncoderEventHandler(CKY040::TEvent Event)
     // ==================================
     switch (Event)
     {
-    case CKY040::EventSwitchDown:
+    case CRobustEncoder::EventSwitchDown:
         m_bSwitchPressed = true;
         break;
 
-    case CKY040::EventSwitchUp:
+    case CRobustEncoder::EventSwitchUp:
         m_bSwitchPressed = false;
         break;
 
-    case CKY040::EventClockwise:
+    case CRobustEncoder::EventClockwise:
         if (m_bSwitchPressed)
         {
-            m_pUIButtons->ResetButton(m_pConfig->GetButtonPinEnter());
+           m_pUIButtons->ResetButton(m_pConfig->GetButtonPinEnter());
         }
         else
         {
-            m_pMiniJV880->mcu.MCU_EncoderTrigger(1);
+           m_pMiniJV880->mcu.MCU_EncoderTrigger(1);
         }
         break;
 
-    case CKY040::EventCounterclockwise:
+    case CRobustEncoder::EventCounterclockwise:
         if (m_bSwitchPressed)
         {
-            m_pUIButtons->ResetButton(m_pConfig->GetButtonPinEnter());
+           m_pUIButtons->ResetButton(m_pConfig->GetButtonPinEnter());
         }
         else
         {
@@ -622,7 +624,7 @@ void CUserInterface::EncoderEventHandler(CKY040::TEvent Event)
         }
         break;
 
-    case CKY040::EventSwitchHold:
+    case CRobustEncoder::EventSwitchHold:
         if (m_pRotaryEncoder->GetHoldSeconds() >= 120)
         {
             delete m_pLCD;
@@ -636,7 +638,7 @@ void CUserInterface::EncoderEventHandler(CKY040::TEvent Event)
 }
 
 
-void CUserInterface::EncoderEventStub (CKY040::TEvent Event, void *pParam)
+void CUserInterface::EncoderEventStub (CRobustEncoder::TEvent Event, void *pParam)
 {
 	CUserInterface *pThis = static_cast<CUserInterface *> (pParam);
 	assert (pThis != 0);
