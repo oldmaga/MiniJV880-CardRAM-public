@@ -1,6 +1,6 @@
 # MiniJV880-CardRAM
 
-![JV880](https://github.com/user-attachments/assets/04f92b10-9d01-4172-8356-1d199547d564)
+![MiniJV880 front panel](docs/images/minijv880-front.jpg)
 
 Mini-JV880pi is a rompler-style synthesizer closely modeled on the famous JV-880 by a well-known Japanese manufacturer running on a bare metal Raspberry Pi (without a Linux kernel or operating system).
 
