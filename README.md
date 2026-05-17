@@ -4,6 +4,14 @@
 
 Mini-JV880pi is a rompler-style synthesizer closely modeled on the famous JV-880 by a well-known Japanese manufacturer running on a bare metal Raspberry Pi (without a Linux kernel or operating system).
 
+## Related repositories
+
+- Hardware box / STL files: https://github.com/oldmaga/MiniJV-880-Box
+- Software / CardRAM public source snapshot: https://github.com/oldmaga/MiniJV880-CardRAM-public
+
+This repository contains the MiniJV880-CardRAM software line.
+The MiniJV-880-Box repository contains the hardware box/STL side of the project.
+
 ## Supported hardware and memory requirements
 
 This MiniJV880-CardRAM line is developed and tested mainly on Raspberry Pi 4 Model B.
@@ -92,10 +100,10 @@ This fork aims for reliable standalone hardware operation while staying close to
 
 This project stands on the shoulders of giants. Special thanks to:
 
-- [giulioz](https://github.com/giulioz) for the original idea of running Mini-JV880 (Nuked-SC55) on Raspberry Pi
-- [plamikcho](https://github.com/plamikcho) for early modifications of giulioz’s code
-- [Sterr1](https://github.com/Sterr1/Mini-JV880pi) for the Mini-JV880pi project and Raspberry Pi hardware integration work
-- [nukeykt](https://github.com/nukeykt) for the [Nuked SC-55](https://github.com/nukeykt/Nuked-SC55) emulator, on which this synth is based
-- [probonopd](https://github.com/probonopd) for [MiniDexed](https://github.com/probonopd/MiniDexed), which served as the basis for this bare-metal implementation
-- [rsta2](https://github.com/rsta2) for [Circle](https://github.com/rsta2/circle), the bare-metal Raspberry Pi framework used by this project
+- [giulioz](https://github.com/giulioz) for the original idea of running Mini-JV880 (Nuked-SC55) on Raspberry Pi  
+- [plamikcho](https://github.com/plamikcho) for early modifications of giulioz’s code  
+- [Sterr1](https://github.com/Sterr1/Mini-JV880pi) for the Mini-JV880pi project and Raspberry Pi hardware integration work  
+- [nukeykt](https://github.com/nukeykt) for the [Nuked SC-55](https://github.com/nukeykt/Nuked-SC55) emulator, on which this synth is based  
+- [probonopd](https://github.com/probonopd) for [MiniDexed](https://github.com/probonopd/MiniDexed), which served as the basis for this bare-metal implementation  
+- [rsta2](https://github.com/rsta2) for [Circle](https://github.com/rsta2/circle), the bare-metal Raspberry Pi framework used by this project  
 - [smuehlst](https://github.com/smuehlst) for [circle-stdlib](https://github.com/smuehlst/circle-stdlib), providing Standard C/C++ library support
