@@ -55,6 +55,15 @@ Important runtime folder names such as `roms/`, `CARD-RAM/`, `PN-JV80/`, `PN-JV8
 
 For the full SD-card layout, required runtime files, folder-depth rules, CardRAM, PN-JV80, RD-500, network and PC-side tool notes, see [Clean SD-card setup](docs/clean-sd-card-setup.md).
 
+## Building from source
+
+For Raspberry Pi 4 / AArch64 builds, use Arm GNU Toolchain 13.2.Rel1
+(`aarch64-none-elf-gcc 13.2.1`). Newer toolchains such as Arm GNU Toolchain
+15.2.Rel1 are currently not recommended with the recorded Circle/newlib
+submodules.
+
+See [Building from source](docs/building-from-source.md).
+
 ## Documentation
 
 Detailed versioned documentation is kept in [docs/](docs/README.md).

@@ -16,3 +16,4 @@ The main README.md gives a short project overview. Detailed documentation is kep
 - [PC-side tools](pc-side-tools.md)
 - [Hardware and front-panel notes](hardware-front-panel-notes.md)
 - [Troubleshooting](troubleshooting.md)
+- [Building from source](building-from-source.md)
