@@ -48,9 +48,9 @@ From the repository root:
     cd /path/to/Mini-JV880pi
     python3 tools/minijv880_remote_gui.py
 
-Example using the development tree:
+Example:
 
-    cd /media/roberto/Dep1/GIT-JV880/Mini-JV880pi
+    cd ~/MiniJV880-CardRAM-public
     python3 tools/minijv880_remote_gui.py
 
 The GUI opens as a desktop Tkinter application on the PC.
