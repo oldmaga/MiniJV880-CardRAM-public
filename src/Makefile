@@ -7,7 +7,7 @@
 CIRCLE_STDLIB_DIR = ../circle-stdlib
 CMSIS_DIR = ../CMSIS_5/CMSIS
 
-OBJS = main.o kernel.o minijv880.o config.o userinterface.o robustencoder.o uibuttons.o \
+OBJS = main.o kernel.o minijv880.o config.o userinterface.o drivers/robustencoder.o uibuttons.o \
        emulator/lcd.o emulator/mcu.o emulator/mcu_opcodes.o emulator/pcm.o \
        debug_tx.o netfileserver.o wlanbringup.o
        

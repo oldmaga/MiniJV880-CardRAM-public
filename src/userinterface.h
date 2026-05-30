@@ -22,7 +22,7 @@
 
 #include "config.h"
 #include "uibuttons.h"
-#include "robustencoder.h"
+#include "drivers/robustencoder.h"
 #include <display/hd44780device.h>
 #include <display/ssd1306device.h>
 #include "drivers/ssd1306device24.h"
