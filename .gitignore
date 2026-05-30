@@ -75,3 +75,4 @@ env-minijv880.sh
 # Python cache
 __pycache__/
 *.pyc
+/dist/
