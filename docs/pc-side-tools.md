@@ -10,7 +10,7 @@ Main PC-side tools:
 
     tools/minijv880_cardram_tool.py
     tools/minijv880_cardram_gui.py
-tools/minijv880_remote_gui.py
+    tools/minijv880_remote_gui.py
     tools/minijv880_tftp_gui.sh
     tools/minijv880_tftp_put.py
 
@@ -114,12 +114,18 @@ The TFTP helper workflow is intended for local Ethernet maintenance.
 
 ## Manuals
 
-Detailed tool usage is documented in:
+The main PC-side tool manuals are:
 
-    tools/minijv880_cardram_tool_manual_en.txt
-    tools/minijv880_cardram_tool_manual_it.txt
-    tools/minijv880_tftp_helper_manual_en_v4.txt
-    tools/minijv880_tftp_helper_manual_it_v4.txt
+- `tools/minijv880_cardram_tool_manual_en.txt`
+- `tools/minijv880_cardram_tool_manual_it.txt`
+- `tools/minijv880_cardram_gui_manual_en.txt`
+- `tools/minijv880_cardram_gui_manual_it.txt`
+- `docs/remote-gui.md`
+- `docs/remote-gui-it.md`
+
+The CardRAM CLI and CardRAM Manager manuals are plain text files stored in `tools/`.
+
+The Remote GUI manuals are Markdown documents stored in `docs/`, because they are part of the public documentation set and are linked from the documentation index.
 
 ## Platform notes
 
