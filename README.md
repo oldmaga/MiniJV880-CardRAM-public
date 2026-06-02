@@ -73,6 +73,7 @@ Useful starting points:
 - [Features and limitations](docs/features-and-limitations.md)
 - [CardRAM workflow](docs/cardram-workflow.md)
 - [Network maintenance](docs/network-maintenance.md)
+- [Remote GUI](docs/remote-gui.md)
 - [Hardware and front-panel notes](docs/hardware-front-panel-notes.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
@@ -92,6 +93,7 @@ Main additions and improvements in this line include:
 - CardRAM probe wrap fix during Patch Play navigation.
 - PC-side CardRAM inspection/editing tools.
 - Tkinter CardRAM manager GUI.
+- PC-side external Remote GUI for development, maintenance and front-panel testing.
 - Export/import support for raw .patchslot files.
 - HTTP/TFTP local maintenance workflows for Ethernet-based management.
 - PN-JV80 local SysEx folder workflow.

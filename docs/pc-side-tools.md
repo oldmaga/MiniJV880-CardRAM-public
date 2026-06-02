@@ -10,6 +10,7 @@ Main PC-side tools:
 
     tools/minijv880_cardram_tool.py
     tools/minijv880_cardram_gui.py
+tools/minijv880_remote_gui.py
     tools/minijv880_tftp_gui.sh
     tools/minijv880_tftp_put.py
 
@@ -63,6 +64,36 @@ The GUI provides a visual workflow for:
 - importing/exporting `.patchslot` files.
 
 The GUI is useful for preparing CardRAM images on a PC before copying them to the SD card.
+
+## Remote GUI
+
+The external Remote GUI is:
+
+    tools/minijv880_remote_gui.py
+
+Run it with:
+
+    python3 tools/minijv880_remote_gui.py
+
+The Remote GUI provides a PC-side virtual front panel for development, maintenance and interactive testing.
+
+It includes:
+
+- MiniJV880 current hardware button view;
+- Original JV-880-oriented virtual panel view;
+- remote button tap/down/up commands over the small HTTP endpoints;
+- encoder clockwise/counter-clockwise remote commands;
+- LCD readback through `/rlcd.txt` and passive serial monitoring;
+- LED readback support;
+- cursor tracking and dot-matrix LCD rendering;
+- display customization for the PC-side LCD view;
+- remote hold gesture support for workflows such as PREVIEW or DATA hold.
+
+The Remote GUI is not compiled into the firmware and is not served by the embedded HTTP server. It runs on the PC and talks to MiniJV880 through the small technical HTTP endpoints. For full live LCD/LED readback, a passive serial monitor using `pyserial` is recommended.
+
+See also:
+
+    docs/remote-gui.md
 
 ## TFTP helper tools
 

@@ -13,6 +13,7 @@ The main README.md gives a short project overview. Detailed documentation is kep
 - [Network maintenance](network-maintenance.md)
 - [PN-JV80 and Roland-PN workflow](pn-jv80-and-roland-pn.md)
 - [RD-500 optional files](rd-500-optional-files.md)
+- [Remote GUI](remote-gui.md)
 - [PC-side tools](pc-side-tools.md)
 - [Hardware and front-panel notes](hardware-front-panel-notes.md)
 - [Troubleshooting](troubleshooting.md)
