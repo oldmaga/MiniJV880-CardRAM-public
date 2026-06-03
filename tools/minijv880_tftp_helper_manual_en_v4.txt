@@ -688,7 +688,15 @@ The remote TFTP name is always:
 
 The firmware saves it as the staging file:
 
-  SD:/kernel8-rpi4.img.new
+  - singleboot legacy: SD:/kernel8-rpi4.img.new
+  - dualboot MiniJV880 managed kernel: SD:/minijv880/kernel8-rpi4.img.new
+
+For dualboot-aware firmware, the GUI also reads:
+
+  /boot-layout.txt
+
+and displays the currently managed active/staged/backup MiniJV880 kernel paths.
+The remote TFTP name remains unchanged for compatibility.
 
 Important:
 
@@ -1078,7 +1086,7 @@ After firmware or tool changes, verify:
  15. Confirm that HTTP download is still not offered for CardRAM .bin files.
  16. Kernel staging:
        digest visible before confirmation, real progress, and
-       SD:/kernel8-rpi4.img.new created.
+       managed MiniJV880 staged kernel created: SD:/kernel8-rpi4.img.new in singleboot, or SD:/minijv880/kernel8-rpi4.img.new in dualboot.
  17. INI staging:
        digest visible before confirmation, real progress, and
        SD:/minijv880.ini.new created.

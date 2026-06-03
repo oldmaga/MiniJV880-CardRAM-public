@@ -1,0 +1,94 @@
+#
+# Optional MiniJV880 + MiniDexed dualboot configuration for Raspberry Pi 4.
+#
+# This file is NOT the default config.txt.
+#
+# To enable the optional dualboot layout:
+#
+#   1. Copy this file to the SD-card root.
+#   2. Rename it to:
+#
+#        config.txt
+#
+#   3. Create the kernel folders:
+#
+#        /minijv880/
+#        /minidexed/
+#
+#   4. Copy the MiniJV880 kernel to:
+#
+#        /minijv880/kernel8-rpi4.img
+#
+#   5. Copy the MiniDexed kernel to:
+#
+#        /minidexed/kernel8-rpi4.img
+#
+# Boot selection:
+#
+#   - DATA not pressed at power-on: MiniJV880
+#   - DATA held at power-on:        MiniDexed
+#
+# Hardware assumption:
+#
+#   - DATA button is connected to GPIO12.
+#   - GPIO12 uses pull-up.
+#   - Pressing DATA pulls GPIO12 low.
+#
+# Safety note:
+#
+#   MiniJV880 HTTP/TFTP kernel maintenance manages only:
+#
+#        /minijv880/kernel8-rpi4.img
+#        /minijv880/kernel8-rpi4.img.new
+#        /minijv880/kernel8-rpi4.img.bak
+#
+#   The MiniDexed kernel under /minidexed/ is detection-only/read-only
+#   from the MiniJV880 maintenance workflow.
+#
+# https://www.raspberrypi.com/documentation/computers/config_txt.html
+#
+
+[all]
+boot_delay=0
+disable_splash=1
+force_eeprom_read=0
+gpu_mem=16
+disable_overscan=0
+
+#
+# DATA boot selector.
+# GPIO12 high/default: MiniJV880.
+# GPIO12 low/DATA held: MiniDexed.
+#
+
+gpio=12=ip,pu
+
+#
+# Use 64-bit for RPi 3, 4, 400, 5 and Zero 2, and 32-bit for all other models.
+# The optional dualboot layout is intended/tested for Raspberry Pi 4.
+#
+
+[pi3]
+arm_64bit=1
+
+[pi4]
+arm_64bit=1
+armstub=armstub8-rpi4.bin
+
+# Default boot target: MiniJV880
+kernel=/minijv880/kernel8-rpi4.img
+
+# DATA held at power-on: GPIO12 low -> MiniDexed
+[gpio12=0]
+kernel=/minidexed/kernel8-rpi4.img
+
+# Reset filters after the GPIO-specific boot override.
+[all]
+
+# Zero 2 W
+[pi02]
+arm_64bit=1
+
+[pi5]
+arm_64bit=1
+kernel=kernel_2712.img

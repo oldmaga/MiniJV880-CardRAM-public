@@ -71,3 +71,41 @@ Do not commit personal Wi-Fi configuration files such as:
 or router/hotspot-specific variants.
 
 If you experiment with Wi-Fi, keep those files local and out of the repository.
+
+## Dualboot-aware kernel maintenance
+
+Dualboot-aware builds expose a plain-text boot layout endpoint:
+
+    /boot-layout.txt
+
+This endpoint reports the managed MiniJV880 kernel paths currently used by the firmware.
+
+Singleboot legacy layout:
+
+    SD:/kernel8-rpi4.img
+    SD:/kernel8-rpi4.img.new
+    SD:/kernel8-rpi4.img.bak
+
+Dualboot layout:
+
+    SD:/minijv880/kernel8-rpi4.img
+    SD:/minijv880/kernel8-rpi4.img.new
+    SD:/minijv880/kernel8-rpi4.img.bak
+
+The optional Raspberry Pi boot configuration example for this layout is:
+
+    src/config-dualboot-data-gpio12.txt
+
+Copy it to the SD-card root as `config.txt` only when you intentionally want to enable the MiniJV880/MiniDexed dualboot selector.
+
+When a MiniDexed kernel is present at:
+
+    SD:/minidexed/kernel8-rpi4.img
+
+it is treated as read-only/detection-only by MiniJV880. MiniJV880 HTTP/TFTP kernel maintenance must not create, overwrite, activate, back up or delete the MiniDexed kernel.
+
+The public TFTP remote name for MiniJV880 kernel staging remains:
+
+    kernel8-rpi4.img
+
+The firmware maps that remote name to the current managed MiniJV880 staged kernel path.

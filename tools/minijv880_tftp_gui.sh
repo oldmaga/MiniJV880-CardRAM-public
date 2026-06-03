@@ -132,6 +132,51 @@ fetch_pnjv80_root_listing() {
     curl --silent --show-error --fail --max-time 8 "$url"
 }
 
+fetch_boot_layout_text() {
+    local url
+
+    url="http://$HOST:$HTTP_PORT/boot-layout.txt"
+
+    curl --silent --show-error --fail --max-time 8 "$url"
+}
+
+boot_layout_field() {
+    local key="$1"
+
+    awk -F= -v k="$key" '$1 == k { print substr($0, index($0, "=") + 1); exit }'
+}
+
+build_kernel_layout_notice() {
+    local layout_text="$1"
+    local http_status="$2"
+    local http_error="$3"
+    local boot_layout active_path stage_path backup_path minidexed_mode
+
+    if [ "$http_status" -eq 0 ] && printf '%s\n' "$layout_text" | grep -q '^managed_kernel_stage_path='; then
+        boot_layout="$(printf '%s\n' "$layout_text" | boot_layout_field boot_layout)"
+        active_path="$(printf '%s\n' "$layout_text" | boot_layout_field managed_kernel_active_path)"
+        stage_path="$(printf '%s\n' "$layout_text" | boot_layout_field managed_kernel_stage_path)"
+        backup_path="$(printf '%s\n' "$layout_text" | boot_layout_field managed_kernel_backup_path)"
+        minidexed_mode="$(printf '%s\n' "$layout_text" | boot_layout_field minidexed_kernel_mode)"
+
+        printf 'Boot layout: %s\n' "${boot_layout:-unknown}"
+        printf 'Managed active path: %s\n' "${active_path:-unknown}"
+        printf 'Managed staged path: %s\n' "${stage_path:-unknown}"
+        printf 'Managed backup path: %s\n' "${backup_path:-unknown}"
+        printf 'MiniDexed mode: %s\n' "${minidexed_mode:-unknown}"
+    else
+        printf 'Boot layout: legacy/unknown; /boot-layout.txt unavailable\n'
+        printf 'Managed active path: SD:/kernel8-rpi4.img\n'
+        printf 'Managed staged path: SD:/kernel8-rpi4.img.new\n'
+        printf 'Managed backup path: SD:/kernel8-rpi4.img.bak\n'
+        printf 'MiniDexed mode: not reported\n'
+
+        if [ -n "$http_error" ]; then
+            printf '\nHTTP detail:\n%s\n' "$http_error"
+        fi
+    fi
+}
+
 extract_pnjv80_folders() {
     python3 -c '
 import html
@@ -1317,6 +1362,17 @@ $(cat "$tmp_digest_error" 2>/dev/null || true)"
     digest_size="${digest_info%% *}"
     digest_value="${digest_info#* }"
 
+    local boot_layout_text boot_layout_error boot_layout_status kernel_layout_notice
+    local tmp_boot_layout_error
+
+    tmp_boot_layout_error="$(mktemp)"
+    boot_layout_text="$(fetch_boot_layout_text 2>"$tmp_boot_layout_error")"
+    boot_layout_status=$?
+    boot_layout_error="$(cat "$tmp_boot_layout_error" 2>/dev/null || true)"
+    rm -f "$tmp_boot_layout_error"
+
+    kernel_layout_notice="$(build_kernel_layout_notice "$boot_layout_text" "$boot_layout_status" "$boot_layout_error")"
+
     if ! zenity --question \
         --width=680 \
         --title="MiniJV880 kernel staging" \
@@ -1334,9 +1390,9 @@ using the remote TFTP name:
 
 kernel8-rpi4.img
 
-The firmware should stage it as:
+The firmware currently reports:
 
-SD:/kernel8-rpi4.img.new
+$kernel_layout_notice
 
 This does NOT activate the kernel.
 Use the HTTP kernel page afterwards to review and activate it.
@@ -1356,6 +1412,9 @@ Continue?"; then
         echo "Remote: kernel8-rpi4.img"
         echo "Size:   $digest_size bytes"
         echo "Digest: $digest_value"
+        echo
+        echo "Firmware layout:"
+        printf '%s\n' "$kernel_layout_notice"
         echo
     } > "$tmp_log"
 

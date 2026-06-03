@@ -140,3 +140,17 @@ They may work on other desktop platforms if Python 3 and Tkinter are available, 
 The TFTP helper GUI is Linux-oriented because it is a shell script workflow.
 
 On Windows, use WSL/Linux or adapt the workflow manually.
+
+## TFTP helper and dualboot layout display
+
+The PC-side TFTP helper keeps using the stable remote TFTP name:
+
+    kernel8-rpi4.img
+
+For dualboot-aware firmware, the helper reads:
+
+    /boot-layout.txt
+
+and displays the managed MiniJV880 active, staged and backup kernel paths before kernel staging. This is informational: the TFTP remote name stays unchanged for compatibility, and the firmware maps it to the correct managed MiniJV880 path.
+
+If `/boot-layout.txt` is unavailable, the helper falls back to the legacy singleboot path display.

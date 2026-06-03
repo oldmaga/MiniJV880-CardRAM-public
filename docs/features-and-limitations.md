@@ -21,6 +21,7 @@ Compared with the original Mini-JV880pi starting point, this line adds and impro
 - Bit-banged serial debug log output on GPIO4, leaving the standard UART pins GPIO14/GPIO15 free for MIDI.
 - Embedded local HTTP server for status, SD-card browsing and maintenance workflows.
 - Kernel and INI staging/maintenance plus reboot workflow over the local network.
+- Optional MiniJV880/MiniDexed dualboot setup, using a separate example configuration while keeping the normal MiniJV880 singleboot configuration as the default.
 - PC-side CardRAM command-line tool.
 - PC-side Tkinter CardRAM manager GUI.
 - PC-side external Remote GUI for development and maintenance testing.
@@ -39,6 +40,7 @@ Compared with the original Mini-JV880pi starting point, this line adds and impro
 - This is a practical MiniJV880 hardware/software adaptation, not a 1:1 recreation of the original Roland JV-880 front panel.
 - The physical button layout is not complete: the COMPARE button is not implemented, and ENTER is performed by the encoder switch.
 - Some workflows use MiniJV880-specific controls, especially DATA short/long press.
+- The optional dualboot setup is not enabled by default and requires manual SD-card preparation.
 - Raspberry Pi 4 Model B is the main tested target; Raspberry Pi 5 and lower-memory/older boards are not validation targets for this release.
 - SR-JV80 images are loaded into RAM at boot; each valid SR image uses about 8 MB.
 - Ethernet is the recommended network path; Wi-Fi/WLAN is present only as experimental work and is not considered reliable or supported in this release.

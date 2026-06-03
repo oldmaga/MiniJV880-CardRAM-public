@@ -33,6 +33,80 @@ namespace
 	static const char *kINIStagePath  = "SD:/minijv880.ini.new";
 	static const char *kINIBackupPath = "SD:/minijv880.ini.bak";
 
+	// Dualboot detection paths.
+	// Safety rule: MiniDexed is detected read-only only. Kernel staging,
+	// activation, backup and delete must manage the MiniJV880 kernel only.
+	static const char *kDualbootMiniJV880ActivePath = "SD:/minijv880/kernel8-rpi4.img";
+	static const char *kDualbootMiniJV880StagePath  = "SD:/minijv880/kernel8-rpi4.img.new";
+	static const char *kDualbootMiniJV880BackupPath = "SD:/minijv880/kernel8-rpi4.img.bak";
+	static const char *kDualbootMiniDexedKernelPath = "SD:/minidexed/kernel8-rpi4.img";
+
+
+	struct TBootLayoutInfo
+	{
+		const char *LayoutName;
+		const char *ManagedKernelActivePath;
+		const char *ManagedKernelStagePath;
+		const char *ManagedKernelBackupPath;
+		bool SinglebootKernelPresent;
+		bool DualbootMiniJV880KernelPresent;
+		bool MiniDexedKernelPresent;
+	};
+
+	static bool FileExistsForBootLayoutDetection (const char *pPath)
+	{
+		if (pPath == 0 || pPath[0] == '\0')
+		{
+			return false;
+		}
+
+		struct stat StatBuf;
+		return stat (pPath, &StatBuf) == 0;
+	}
+
+	static void DetectBootLayout (TBootLayoutInfo *pInfo)
+	{
+		if (pInfo == 0)
+		{
+			return;
+		}
+
+		pInfo->SinglebootKernelPresent =
+			FileExistsForBootLayoutDetection (kKernelActivePath);
+		pInfo->DualbootMiniJV880KernelPresent =
+			FileExistsForBootLayoutDetection (kDualbootMiniJV880ActivePath);
+		pInfo->MiniDexedKernelPresent =
+			FileExistsForBootLayoutDetection (kDualbootMiniDexedKernelPath);
+
+		// Default/recovery choice keeps the legacy MiniJV880 root-kernel paths.
+		pInfo->LayoutName = "unknown";
+		pInfo->ManagedKernelActivePath = kKernelActivePath;
+		pInfo->ManagedKernelStagePath = kKernelStagePath;
+		pInfo->ManagedKernelBackupPath = kKernelBackupPath;
+
+		// Prefer the validated dualboot layout only when both kernels are present.
+		// MiniDexed remains read-only/detected-only and is never returned as a
+		// managed kernel path.
+		if (pInfo->DualbootMiniJV880KernelPresent && pInfo->MiniDexedKernelPresent)
+		{
+			pInfo->LayoutName = "dualboot";
+			pInfo->ManagedKernelActivePath = kDualbootMiniJV880ActivePath;
+			pInfo->ManagedKernelStagePath = kDualbootMiniJV880StagePath;
+			pInfo->ManagedKernelBackupPath = kDualbootMiniJV880BackupPath;
+		}
+		else if (pInfo->SinglebootKernelPresent)
+		{
+			pInfo->LayoutName = "singleboot";
+		}
+		else if (pInfo->DualbootMiniJV880KernelPresent)
+		{
+			pInfo->LayoutName = "minijv880-folder";
+			pInfo->ManagedKernelActivePath = kDualbootMiniJV880ActivePath;
+			pInfo->ManagedKernelStagePath = kDualbootMiniJV880StagePath;
+			pInfo->ManagedKernelBackupPath = kDualbootMiniJV880BackupPath;
+		}
+	}
+
 	static const char *BoolText (bool bValue)
 	{
 		return bValue
@@ -3525,7 +3599,10 @@ int nWritten = snprintf (
 
 			if (strcmp (pFileName, "kernel8-rpi4.img") == 0)
 			{
-				pOpenPath = kKernelActivePath;
+				TBootLayoutInfo BootLayout;
+				DetectBootLayout (&BootLayout);
+
+				pOpenPath = BootLayout.ManagedKernelActivePath;
 				m_bKernelTransfer = TRUE;
 			}
 			else if (strcmp (pFileName, "minijv880.ini") == 0)
@@ -3800,7 +3877,10 @@ int nWritten = snprintf (
 
 			if (strcmp (pFileName, "kernel8-rpi4.img") == 0)
 			{
-				pTargetPath = kKernelStagePath;
+				TBootLayoutInfo BootLayout;
+				DetectBootLayout (&BootLayout);
+
+				pTargetPath = BootLayout.ManagedKernelStagePath;
 				m_bKernelTransfer = TRUE;
 			}
 			else if (strcmp (pFileName, "minijv880.ini") == 0)
@@ -6435,88 +6515,146 @@ int nWritten = snprintf (
 	                   return HTTPOK;
                         }
 
-                        else if (strcmp (pPath, "/kernel-status.txt") == 0)
-                        {
-	                   bool bKernelExists = false;
-	                   bool bStageExists = false;
-	                   bool bBackupExists = false;
-	                   char KernelSizeText[64];
-	                   char StageSizeText[64];
-	                   char BackupSizeText[64];
-	                   char KernelDigestText[32];
-	                   char StageDigestText[32];
-	                   char BackupDigestText[32];
+	                        else if (strcmp (pPath, "/boot-layout.txt") == 0)
+	                        {
+		                   TBootLayoutInfo BootLayout;
+		                   DetectBootLayout (&BootLayout);
 
-	                   if (!GetKernelFileStatusText (
-	                           kKernelActivePath,
-	                           &bKernelExists,
-	                           KernelSizeText,
-	                           sizeof KernelSizeText)
-	                       || !GetKernelFileStatusText (
-	                           kKernelStagePath,
-	                           &bStageExists,
-	                           StageSizeText,
-	                           sizeof StageSizeText)
-	                       || !GetKernelFileStatusText (
-	                           kKernelBackupPath,
-	                           &bBackupExists,
-	                           BackupSizeText,
-	                           sizeof BackupSizeText)
-	                       || !GetKernelFileDigestText (
-	                           kKernelActivePath,
-	                           KernelDigestText,
-	                           sizeof KernelDigestText)
-	                       || !GetKernelFileDigestText (
-	                           kKernelStagePath,
-	                           StageDigestText,
-	                           sizeof StageDigestText)
-	                       || !GetKernelFileDigestText (
-	                           kKernelBackupPath,
-	                           BackupDigestText,
-	                           sizeof BackupDigestText))
-	                   {
-		              return HTTPInternalServerError;
-	                   }
+		                   int nWritten = snprintf (
+		                       StatusPage, sizeof StatusPage,
+		                       "MiniJV880 boot layout\n"
+		                       "boot_layout=%s\n"
+		                       "managed_kernel=MiniJV880\n"
+		                       "managed_kernel_active_path=%s\n"
+		                       "managed_kernel_stage_path=%s\n"
+		                       "managed_kernel_backup_path=%s\n"
+		                       "singleboot_kernel_present=%s\n"
+		                       "dualboot_minijv880_kernel_present=%s\n"
+		                       "minidexed_kernel_present=%s\n"
+		                       "minidexed_kernel_mode=read-only-detected-only\n",
+		                       BootLayout.LayoutName,
+		                       BootLayout.ManagedKernelActivePath,
+		                       BootLayout.ManagedKernelStagePath,
+		                       BootLayout.ManagedKernelBackupPath,
+		                       BootLayout.SinglebootKernelPresent ? "yes" : "no",
+		                       BootLayout.DualbootMiniJV880KernelPresent ? "yes" : "no",
+		                       BootLayout.MiniDexedKernelPresent ? "yes" : "no");
 
-	                   int nWritten = snprintf (
-		               StatusPage, sizeof StatusPage,
-		               "MiniJV880 kernel status\n"
-		               "Active exists: %s\n"
-		               "Active size: %s\n"
-		               "Active digest: %s\n"
-		               "Staged exists: %s\n"
-		               "Staged size: %s\n"
-		               "Staged digest: %s\n"
-		               "Backup exists: %s\n"
-		               "Backup size: %s\n"
-		               "Backup digest: %s\n",
-		               bKernelExists ? "yes" : "no",
-		               KernelSizeText,
-		               KernelDigestText,
-		               bStageExists ? "yes" : "no",
-		               StageSizeText,
-		               StageDigestText,
-		               bBackupExists ? "yes" : "no",
-		               BackupSizeText,
-		               BackupDigestText);
+		                   if (nWritten < 0 || (unsigned) nWritten >= sizeof StatusPage)
+		                   {
+		                      return HTTPInternalServerError;
+		                   }
 
-	                   if (nWritten < 0 || (unsigned) nWritten >= sizeof StatusPage)
-	                   {
-		              return HTTPInternalServerError;
-	                   }
+		                   size_t nBodyLength = strlen (StatusPage);
+		                   if (nBodyLength > *pLength)
+		                   {
+		                      return HTTPInternalServerError;
+		                   }
 
-	                   size_t nBodyLength = strlen (StatusPage);
-	                   if (nBodyLength > *pLength)
-	                   {
-		              return HTTPInternalServerError;
-	                   }
+		                   memcpy (pBuffer, StatusPage, nBodyLength);
+		                   *pLength = (unsigned) nBodyLength;
+		                   *ppContentType = "text/plain; charset=iso-8859-1";
+		                   return HTTPOK;
+	                        }
 
-	                   memcpy (pBuffer, StatusPage, nBodyLength);
-	                   *pLength = (unsigned) nBodyLength;
-	                   *ppContentType = "text/plain; charset=iso-8859-1";
-	                   return HTTPOK;
-                        }
-                      
+	                        else if (strcmp (pPath, "/kernel-status.txt") == 0)
+	                        {
+		                   bool bKernelExists = false;
+		                   bool bStageExists = false;
+		                   bool bBackupExists = false;
+		                   char KernelSizeText[64];
+		                   char StageSizeText[64];
+		                   char BackupSizeText[64];
+		                   char KernelDigestText[32];
+		                   char StageDigestText[32];
+		                   char BackupDigestText[32];
+
+		                   TBootLayoutInfo BootLayout;
+		                   DetectBootLayout (&BootLayout);
+
+		                   if (!GetKernelFileStatusText (
+		                           BootLayout.ManagedKernelActivePath,
+		                           &bKernelExists,
+		                           KernelSizeText,
+		                           sizeof KernelSizeText)
+		                       || !GetKernelFileStatusText (
+		                           BootLayout.ManagedKernelStagePath,
+		                           &bStageExists,
+		                           StageSizeText,
+		                           sizeof StageSizeText)
+		                       || !GetKernelFileStatusText (
+		                           BootLayout.ManagedKernelBackupPath,
+		                           &bBackupExists,
+		                           BackupSizeText,
+		                           sizeof BackupSizeText)
+		                       || !GetKernelFileDigestText (
+		                           BootLayout.ManagedKernelActivePath,
+		                           KernelDigestText,
+		                           sizeof KernelDigestText)
+		                       || !GetKernelFileDigestText (
+		                           BootLayout.ManagedKernelStagePath,
+		                           StageDigestText,
+		                           sizeof StageDigestText)
+		                       || !GetKernelFileDigestText (
+		                           BootLayout.ManagedKernelBackupPath,
+		                           BackupDigestText,
+		                           sizeof BackupDigestText))
+		                   {
+			              return HTTPInternalServerError;
+		                   }
+
+		                   int nWritten = snprintf (
+			               StatusPage, sizeof StatusPage,
+			               "MiniJV880 kernel status\n"
+			               "Boot layout: %s\n"
+			               "Managed kernel: MiniJV880\n"
+			               "Active path: %s\n"
+			               "Active exists: %s\n"
+			               "Active size: %s\n"
+			               "Active digest: %s\n"
+			               "Staged path: %s\n"
+			               "Staged exists: %s\n"
+			               "Staged size: %s\n"
+			               "Staged digest: %s\n"
+			               "Backup path: %s\n"
+			               "Backup exists: %s\n"
+			               "Backup size: %s\n"
+			               "Backup digest: %s\n"
+			               "MiniDexed kernel present: %s\n"
+			               "MiniDexed kernel mode: read-only-detected-only\n",
+			               BootLayout.LayoutName,
+			               BootLayout.ManagedKernelActivePath,
+			               bKernelExists ? "yes" : "no",
+			               KernelSizeText,
+			               KernelDigestText,
+			               BootLayout.ManagedKernelStagePath,
+			               bStageExists ? "yes" : "no",
+			               StageSizeText,
+			               StageDigestText,
+			               BootLayout.ManagedKernelBackupPath,
+			               bBackupExists ? "yes" : "no",
+			               BackupSizeText,
+			               BackupDigestText,
+			               BootLayout.MiniDexedKernelPresent ? "yes" : "no");
+
+		                   if (nWritten < 0 || (unsigned) nWritten >= sizeof StatusPage)
+		                   {
+			              return HTTPInternalServerError;
+		                   }
+
+		                   size_t nBodyLength = strlen (StatusPage);
+		                   if (nBodyLength > *pLength)
+		                   {
+			              return HTTPInternalServerError;
+		                   }
+
+		                   memcpy (pBuffer, StatusPage, nBodyLength);
+		                   *pLength = (unsigned) nBodyLength;
+		                   *ppContentType = "text/plain; charset=iso-8859-1";
+		                   return HTTPOK;
+	                        }
+
+
                         else if (strcmp (pPath, "/maintenance") == 0)
                         {
 	                   bool bKernelExists = false;
@@ -8113,6 +8251,13 @@ int nWritten = snprintf (
                       }
                       else if (strcmp (pPath, "/kernel-activate") == 0)
                       {
+	                   TBootLayoutInfo BootLayout;
+	                   DetectBootLayout (&BootLayout);
+
+	                   const char *pKernelActivePath = BootLayout.ManagedKernelActivePath;
+	                   const char *pKernelStagePath = BootLayout.ManagedKernelStagePath;
+	                   const char *pKernelBackupPath = BootLayout.ManagedKernelBackupPath;
+
 	                   bool bKernelExists = false;
 	                   bool bStageExists = false;
 	                   bool bBackupExists = false;
@@ -8121,17 +8266,17 @@ int nWritten = snprintf (
 	                   char BackupSizeText[64];
 
 	                   if (!GetKernelFileStatusText (
-	                           kKernelActivePath,
+	                           pKernelActivePath,
 	                           &bKernelExists,
 	                           KernelSizeText,
 	                           sizeof KernelSizeText)
 	                       || !GetKernelFileStatusText (
-	                           kKernelStagePath,
+	                           pKernelStagePath,
 	                           &bStageExists,
 	                           StageSizeText,
 	                           sizeof StageSizeText)
 	                       || !GetKernelFileStatusText (
-	                           kKernelBackupPath,
+	                           pKernelBackupPath,
 	                           &bBackupExists,
 	                           BackupSizeText,
 	                           sizeof BackupSizeText))
@@ -8206,6 +8351,13 @@ int nWritten = snprintf (
                       }
                       else if (strcmp (pPath, "/kernel-activate-exec") == 0)
                       {
+	                   TBootLayoutInfo BootLayout;
+	                   DetectBootLayout (&BootLayout);
+
+	                   const char *pKernelActivePath = BootLayout.ManagedKernelActivePath;
+	                   const char *pKernelStagePath = BootLayout.ManagedKernelStagePath;
+	                   const char *pKernelBackupPath = BootLayout.ManagedKernelBackupPath;
+
 	                   bool bKernelExists = false;
 	                   bool bStageExists = false;
 	                   bool bBackupExists = false;
@@ -8214,17 +8366,17 @@ int nWritten = snprintf (
 	                   char BackupSizeText[64];
 
 	                   if (!GetKernelFileStatusText (
-	                           kKernelActivePath,
+	                           pKernelActivePath,
 	                           &bKernelExists,
 	                           KernelSizeText,
 	                           sizeof KernelSizeText)
 	                       || !GetKernelFileStatusText (
-	                           kKernelStagePath,
+	                           pKernelStagePath,
 	                           &bStageExists,
 	                           StageSizeText,
 	                           sizeof StageSizeText)
 	                       || !GetKernelFileStatusText (
-	                           kKernelBackupPath,
+	                           pKernelBackupPath,
 	                           &bBackupExists,
 	                           BackupSizeText,
 	                           sizeof BackupSizeText))
@@ -8275,7 +8427,7 @@ int nWritten = snprintf (
 
 		              if (bBackupExists)
 		              {
-			 if (remove (kKernelBackupPath) != 0)
+			 if (remove (pKernelBackupPath) != 0)
 			 {
 			     int nWritten = snprintf (
 			         PNPage, sizeof PNPage,
@@ -8315,7 +8467,7 @@ int nWritten = snprintf (
 
 		              if (pBody == 0)
 		              {
-			 if (rename (kKernelActivePath, kKernelBackupPath) != 0)
+			 if (rename (pKernelActivePath, pKernelBackupPath) != 0)
 			 {
 			     int nWritten = snprintf (
 			         PNPage, sizeof PNPage,
@@ -8347,9 +8499,9 @@ int nWritten = snprintf (
 			 {
 			     bRenamedActiveToBackup = true;
 
-			     if (rename (kKernelStagePath, kKernelActivePath) != 0)
+			     if (rename (pKernelStagePath, pKernelActivePath) != 0)
 			     {
-			         if (rename (kKernelBackupPath, kKernelActivePath) == 0)
+			         if (rename (pKernelBackupPath, pKernelActivePath) == 0)
 			         {
 				     bRollbackOK = true;
 			         }
@@ -8421,6 +8573,13 @@ int nWritten = snprintf (
                       }
                       else if (strcmp (pPath, "/kernel-backup-delete-exec") == 0)
                       {
+	                   TBootLayoutInfo BootLayout;
+	                   DetectBootLayout (&BootLayout);
+
+	                   const char *pKernelActivePath = BootLayout.ManagedKernelActivePath;
+	                   const char *pKernelStagePath = BootLayout.ManagedKernelStagePath;
+	                   const char *pKernelBackupPath = BootLayout.ManagedKernelBackupPath;
+
 	                   bool bKernelExists = false;
 	                   bool bStageExists = false;
 	                   bool bBackupExists = false;
@@ -8430,22 +8589,22 @@ int nWritten = snprintf (
 	                   char BackupDigestText[32];
 
 	                   if (!GetKernelFileStatusText (
-	                           kKernelActivePath,
+	                           pKernelActivePath,
 	                           &bKernelExists,
 	                           KernelSizeText,
 	                           sizeof KernelSizeText)
 	                       || !GetKernelFileStatusText (
-	                           kKernelStagePath,
+	                           pKernelStagePath,
 	                           &bStageExists,
 	                           StageSizeText,
 	                           sizeof StageSizeText)
 	                       || !GetKernelFileStatusText (
-	                           kKernelBackupPath,
+	                           pKernelBackupPath,
 	                           &bBackupExists,
 	                           BackupSizeText,
 	                           sizeof BackupSizeText)
 	                       || !GetKernelFileDigestText (
-	                           kKernelBackupPath,
+	                           pKernelBackupPath,
 	                           BackupDigestText,
 	                           sizeof BackupDigestText))
 	                   {
@@ -8485,7 +8644,7 @@ int nWritten = snprintf (
 
 		              pBody = PNPage;
 	                   }
-	                   else if (remove (kKernelBackupPath) != 0)
+	                   else if (remove (pKernelBackupPath) != 0)
 	                   {
 		              int nWritten = snprintf (
 			          PNPage, sizeof PNPage,

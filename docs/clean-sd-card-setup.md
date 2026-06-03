@@ -120,11 +120,43 @@ may exist on the SD card but will not be seen or managed by the MiniJV880 HTTP/f
 
 The layout above is a target runtime layout for a clean user-prepared SD card. It is not the content of this GitHub repository or release.
 
+
+### Optional dualboot SD card layout
+
+The layout above is the legacy/singleboot MiniJV880 layout, where the active MiniJV880 kernel is placed at:
+
+    /kernel8-rpi4.img
+
+Optional dualboot-aware setups may instead keep the MiniJV880 kernel in a dedicated folder:
+
+    /minijv880/kernel8-rpi4.img
+
+The repository provides an optional example configuration for this layout:
+
+    src/config-dualboot-data-gpio12.txt
+
+To use it on the SD card, copy it to the SD-card root and rename it to:
+
+    config.txt
+
+In that layout, the MiniJV880 managed kernel files are:
+
+    /minijv880/kernel8-rpi4.img
+    /minijv880/kernel8-rpi4.img.new
+    /minijv880/kernel8-rpi4.img.bak
+
+A MiniDexed kernel, if present, is normally placed at:
+
+    /minidexed/kernel8-rpi4.img
+
+MiniJV880 treats the MiniDexed kernel as detection-only/read-only context. MiniJV880 HTTP/TFTP kernel maintenance must only stage, activate, back up or delete the managed MiniJV880 kernel files under `/minijv880/`.
+
+The remaining MiniJV880 runtime folders such as `roms/`, `CARD-RAM/`, `PN-JV80/`, `RD-500/` and optional `tools/` stay at the SD-card root unless documented otherwise.
+
 ### Required runtime files
 
-The following files are required for normal JV-880 operation:
+The following files are required for normal JV-880 operation in both legacy/singleboot and optional dualboot layouts:
 
-    kernel8-rpi4.img
     config.txt
     minijv880.ini
     jv880_rom1.bin
@@ -132,6 +164,19 @@ The following files are required for normal JV-880 operation:
     jv880_waverom1.bin
     jv880_waverom2.bin
     jv880_nvram.bin
+
+
+The active MiniJV880 kernel path depends on the selected layout.
+
+Legacy/singleboot active MiniJV880 kernel:
+
+    kernel8-rpi4.img
+
+Optional dualboot active MiniJV880 kernel:
+
+    minijv880/kernel8-rpi4.img
+
+In the optional dualboot layout, `config.txt` selects the actual boot target.
 
 The ROM/NVRAM files are not included in this repository. Users must provide them legally and separately.
 

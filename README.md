@@ -51,6 +51,13 @@ The active MiniJV880 kernel must be copied to the FAT32 SD-card root and renamed
 
     kernel8-rpi4.img
 
+
+Optional dualboot-aware setups can instead keep the MiniJV880 kernel in a dedicated folder and use the separate example configuration:
+
+    src/config-dualboot-data-gpio12.txt
+
+In that optional layout, DATA held at power-on can select MiniDexed, while normal boot remains MiniJV880. The normal `src/config.txt` stays the default singleboot example.
+
 Important runtime folder names such as `roms/`, `CARD-RAM/`, `PN-JV80/`, `PN-JV80/Roland-PN/` and `RD-500/` must be kept exactly as documented.
 
 For the full SD-card layout, required runtime files, folder-depth rules, CardRAM, PN-JV80, RD-500, network and PC-side tool notes, see [Clean SD-card setup](docs/clean-sd-card-setup.md).
@@ -96,6 +103,7 @@ Main additions and improvements in this line include:
 - PC-side external Remote GUI for development, maintenance and front-panel testing.
 - Export/import support for raw .patchslot files.
 - HTTP/TFTP local maintenance workflows for Ethernet-based management.
+- Optional MiniJV880/MiniDexed dualboot setup using a separate example configuration.
 - PN-JV80 local SysEx folder workflow.
 - RD-500 optional file workflow through the SR overlay/menu.
 - Full front-panel GPIO button handling for the MiniJV880 hardware layout.
