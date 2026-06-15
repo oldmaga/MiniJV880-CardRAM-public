@@ -154,3 +154,27 @@ For dualboot-aware firmware, the helper reads:
 and displays the managed MiniJV880 active, staged and backup kernel paths before kernel staging. This is informational: the TFTP remote name stays unchanged for compatibility, and the firmware maps it to the correct managed MiniJV880 path.
 
 If `/boot-layout.txt` is unavailable, the helper falls back to the legacy singleboot path display.
+
+<!-- MIDI_TOOL_LAB_DOC_START -->
+### MiniJV880 MIDI button test tool and MIDI Lab
+
+`tools/minijv880_midi_buttons_test.py` is a PC-side ALSA/amidi helper for testing MiniJV880 MIDI button control from a standard MIDI output port. It does not require Python MIDI libraries, but it does require the `amidi` command from `alsa-utils`.
+
+The tool is organized into two tabs:
+
+- **MIDI Buttons**: a remote-panel style view of the mapped MiniJV880 / JV-880 controls. Normal buttons send a press value followed by a release value. Hold-style buttons such as PREVIEW, TONE SELECT and DATA keep an internal hold state and show it with a small LED. ALL RELEASE / CC 64 is available as a safety command for clearing MIDI-held button states.
+- **MIDI Lab**: an experimental area for trying additional MIDI messages without changing the firmware or the INI file.
+
+The MIDI Lab tab currently includes:
+
+- **Generic CC sender**: sends an arbitrary CC number and value on the selected channel. It can send a single value, a press/release tap, hold down value 0, hold up value 127, and ALL RELEASE / PANIC / CC 64.
+- **Experimental presets**: four temporary editable slots with Name, Note, CC and Value fields. `Load` copies the preset CC/value into the Generic CC sender. `Send` transmits the preset value directly. The Note field is descriptive only and does not affect the transmitted MIDI bytes.
+- **Raw MIDI bytes**: sends 1 to 3 raw hexadecimal bytes, for example `B0 40 00`. SysEx is intentionally excluded from this first MIDI Lab implementation.
+- **In-tab logs**: both the MIDI Buttons tab and the MIDI Lab tab contain a log panel. Log messages are mirrored to both views.
+
+Current limitations:
+
+- MIDI Lab presets are temporary and are not saved to disk.
+- Raw MIDI is limited to 1-3 bytes and intentionally does not support SysEx yet.
+- DATA / CC49 is kept for completeness in the 2.4.0 branch, but the DATA CC event itself has no practical effect. Use DATA dial ◀ / DATA dial ▶ for encoder-style DATA movement and SR overlay toggle for the MiniJV880 SR overlay.
+<!-- MIDI_TOOL_LAB_DOC_END -->

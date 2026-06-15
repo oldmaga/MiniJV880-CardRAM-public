@@ -86,6 +86,9 @@ public:
 	unsigned m_nMIDIEnter;
 	unsigned m_nMIDIUp;
 	unsigned m_nMIDIDown;
+	unsigned m_nMIDISROverlay;
+	unsigned m_nMIDIEnterLong;
+	unsigned m_nMIDIAllRelease;
 
 private:
 

@@ -155,6 +155,9 @@ public:
     unsigned GetMIDIButtonEnter (void) const;
 	unsigned GetMIDIButtonUp (void) const;
 	unsigned GetMIDIButtonDown (void) const;
+	unsigned GetMIDIButtonSROverlay (void) const;
+	unsigned GetMIDIButtonEnterLong (void) const;
+	unsigned GetMIDIButtonAllRelease (void) const;
 	
 	// Timeouts for button events in milliseconds
 	unsigned GetDoubleClickTimeout (void) const;
@@ -280,6 +283,9 @@ private:
     unsigned m_nMIDIButtonEnter;
     unsigned m_nMIDIButtonUp;
     unsigned m_nMIDIButtonDown;
+	unsigned m_nMIDIButtonSROverlay;
+	unsigned m_nMIDIButtonEnterLong;
+	unsigned m_nMIDIButtonAllRelease;
 	unsigned m_nDoubleClickTimeout;
 	unsigned m_nLongPressTimeout;
 	unsigned m_nSYXMenuLongPressTimeout;

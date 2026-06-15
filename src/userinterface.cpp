@@ -78,6 +78,9 @@ bool CUserInterface::Initialize (void)
     m_nMIDIEnter = 			m_pConfig->GetMIDIButtonEnter() & 0x7F; 
 	m_nMIDIUp = 			m_pConfig->GetMIDIButtonUp() & 0x7F; 
 	m_nMIDIDown = 			m_pConfig->GetMIDIButtonDown() & 0x7F; 
+	m_nMIDISROverlay = 	m_pConfig->GetMIDIButtonSROverlay() & 0x7F;
+	m_nMIDIEnterLong = 	m_pConfig->GetMIDIButtonEnterLong() & 0x7F;
+	m_nMIDIAllRelease = 	m_pConfig->GetMIDIButtonAllRelease() & 0x7F;
 
 	
 	if (!LCDInit()) {
@@ -823,9 +826,9 @@ void CUserInterface::UIButtonsEventStub (CUIButton::BtnEvent Event, void *pParam
 
 void CUserInterface::TriggerUIButtonEvent(CUIButton::BtnEvent event)
 {
-    if (event != CUIButton::BtnEventNone)
-    {
-        UIButtonsEventHandler(event);
-    }
+    // MIDI/remote callers must be able to send BtnEventNone too.
+    // BtnEventNone is the synthetic "release" event and lets
+    // UIButtonsEventHandler clear mcu_button_pressed.
+    UIButtonsEventHandler(event);
 }
 

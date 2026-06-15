@@ -1049,7 +1049,74 @@ if (g_SRScanResult.code == SRScanCode::Ok)
   return true;
 }
 
+static constexpr uint32_t BTN_TONE_SELECT_MASK = 0x00000004; // TONE SELECT = bit 2
+static constexpr uint32_t BTN_TONE_SW1_MASK    = 0x00000008; // shared TONE SW1 / MUTE = bit 3
+static constexpr uint32_t BTN_DATA_MASK        = 0x00000010; // DATA = bit 4
+static constexpr uint32_t BTN_TONE_SW2_MASK    = 0x00000020; // shared TONE SW2 / MONITOR = bit 5
+static constexpr uint32_t BTN_TONE_SW3_MASK    = 0x00000040; // shared TONE SW3 / COMPARE = bit 6
+static constexpr uint32_t BTN_ENTER_MASK       = 0x00000080; // shared TONE SW4 / ENTER = bit 7
+static constexpr uint32_t BTN_UTILITY_MASK     = 0x00000100; // UTILITY = bit 8
+static constexpr uint32_t BTN_PREVIEW_MASK     = 0x00000200; // PREVIEW = bit 9
 static constexpr uint32_t BTN_PATCH_PERF_MASK = 0x00000400; // PATCH/PERF
+
+// Persistent MIDI-held button bits.
+// This is intentionally separate from GPIO raw masks, DATA/SR/SYX handling
+// and the one-frame injected sequence mask.
+static uint32_t g_MIDIHeldButtonMask = 0;
+
+// One-shot MIDI ENTER-long command support.
+// A dedicated MIDI CC can request a timed ENTER hold without exposing
+// ENTER DOWN/UP as user-facing commands.
+static uint32_t g_MIDIEnterLongHoldUntilTick = 0;
+
+// Short timed ENTER tap used only by local overlays when needed.
+static uint32_t g_MIDIEnterTapHoldUntilTick = 0;
+
+static void ClearMIDIHeldButtonsAndTimers()
+{
+    __atomic_store_n(&g_MIDIHeldButtonMask, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_MIDIEnterLongHoldUntilTick, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_MIDIEnterTapHoldUntilTick, 0u, __ATOMIC_RELAXED);
+}
+
+static uint32_t GetMIDIHeldButtonMaskWithTimedEnter()
+{
+    uint32_t mask = __atomic_load_n(&g_MIDIHeldButtonMask, __ATOMIC_RELAXED);
+    const uint32_t now = CTimer::Get()->GetTicks();
+
+    const uint32_t longUntilTick =
+        __atomic_load_n(&g_MIDIEnterLongHoldUntilTick, __ATOMIC_RELAXED);
+
+    if (longUntilTick != 0)
+    {
+        if (now < longUntilTick)
+        {
+            mask |= BTN_ENTER_MASK;
+        }
+        else
+        {
+            __atomic_store_n(&g_MIDIEnterLongHoldUntilTick, 0u, __ATOMIC_RELAXED);
+        }
+    }
+
+    const uint32_t tapUntilTick =
+        __atomic_load_n(&g_MIDIEnterTapHoldUntilTick, __ATOMIC_RELAXED);
+
+    if (tapUntilTick != 0)
+    {
+        if (now < tapUntilTick)
+        {
+            mask |= BTN_ENTER_MASK;
+        }
+        else
+        {
+            __atomic_store_n(&g_MIDIEnterTapHoldUntilTick, 0u, __ATOMIC_RELAXED);
+        }
+    }
+
+    return mask;
+}
+
 
 void CMiniJV880::Process(bool bPlugAndPlayUpdated)
 {
@@ -1623,6 +1690,11 @@ if (m_bSYXMenuActive)
     if (m_UI.GetUIButtons())
     {
         uint32_t realMask = m_UI.GetUIButtons()->GetRawMask();
+
+        const uint32_t midiHeldMask =
+            GetMIDIHeldButtonMaskWithTimedEnter();
+
+        realMask |= midiHeldMask;
         
         const bool enterPressedNow = (realMask & (1 << 7)) != 0;
 
@@ -1945,13 +2017,12 @@ void CMiniJV880::ParseMIDIData(CMiniJV880* pThis, const u8* pData, unsigned nLen
                 // OMNI (17) 
                 if (pThis->m_UI.m_nMIDIButtonChannel == 17 || expectedChannel == channel) 
                 {
-                    auto handleButton = [&](u8 confCC, CUIButton::BtnEvent ev) {
-                        if (ccNumber == confCC) {
+                    auto handleSimpleInjectedButton = [&](u8 confCC, uint32_t mask) {
+                        if (confCC != 0 && ccNumber == confCC) {
                             if (ccValue < 64) {
-                                // нажали
-                                pThis->m_UI.TriggerUIButtonEvent(ev);
+                                pThis->m_InjectedButtonMask |= mask;
                             } else {
-                                pThis->m_UI.TriggerUIButtonEvent(CUIButton::BtnEventNone);
+                                pThis->m_InjectedButtonMask &= ~mask;
                             }
                             i += 2;
                             return true;
@@ -1959,31 +2030,175 @@ void CMiniJV880::ParseMIDIData(CMiniJV880* pThis, const u8* pData, unsigned nLen
                         return false;
                     };
 
-                    if (handleButton(pThis->m_UI.m_nMIDIPreview,      CUIButton::BtnEventPreview)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDILeft,         CUIButton::BtnEventLeft)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIRight,        CUIButton::BtnEventRight)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIData,         CUIButton::BtnEventData)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIToneSelect,   CUIButton::BtnEventToneSelect)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIPatchPerform, CUIButton::BtnEventPatchPerform)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIEdit,         CUIButton::BtnEventEdit)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDISystem,       CUIButton::BtnEventSystem)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIRhythm,       CUIButton::BtnEventRhythm)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIUtility,      CUIButton::BtnEventUtility)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIMute,         CUIButton::BtnEventMute)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIMonitor,      CUIButton::BtnEventMonitor)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDICompare,      CUIButton::BtnEventCompare)) continue;
-                    if (handleButton(pThis->m_UI.m_nMIDIEnter,        CUIButton::BtnEventEnter)) continue;
+                    // MIDI simple buttons: use the existing injected-mask path only.
+                    // Do not feed MIDI into GPIO raw masks or DATA/SR long-press paths.
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDILeft,         (1u << MCU_BUTTON_CURSOR_L)))      continue;
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDIRight,        (1u << MCU_BUTTON_CURSOR_R)))      continue;
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDIPatchPerform, (1u << MCU_BUTTON_PATCH_PERFORM))) continue;
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDIEdit,         (1u << MCU_BUTTON_EDIT)))          continue;
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDISystem,       (1u << MCU_BUTTON_SYSTEM)))        continue;
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDIRhythm,       (1u << MCU_BUTTON_RHYTHM)))        continue;
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDIUtility,      (1u << MCU_BUTTON_UTILITY)))       continue;
 
-                    // Encoder
+                    auto handleMIDIHeldPhysicalKey = [&](u8 confCC, uint32_t mask) {
+                        if (confCC != 0 && ccNumber == confCC) {
+                            if (ccValue < 64)
+                                __atomic_or_fetch(&g_MIDIHeldButtonMask, mask, __ATOMIC_RELAXED);
+                            else
+                                __atomic_and_fetch(&g_MIDIHeldButtonMask, ~mask, __ATOMIC_RELAXED);
+
+                            i += 2;
+                            return true;
+                        }
+                        return false;
+                    };
+
+                    // DATA, TONE SELECT and PREVIEW are real holds.
+                    // DATA needs press/release visibility for the existing
+                    // DATA short/long state machine.
+                    if (handleMIDIHeldPhysicalKey(pThis->m_UI.m_nMIDIData,       BTN_DATA_MASK))        continue;
+                    if (handleMIDIHeldPhysicalKey(pThis->m_UI.m_nMIDIToneSelect, BTN_TONE_SELECT_MASK)) continue;
+                    if (handleMIDIHeldPhysicalKey(pThis->m_UI.m_nMIDIPreview,    BTN_PREVIEW_MASK))     continue;
+
+                    // TONE SW1/2/3 are tap-style shared physical keys.
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDIMute,    BTN_TONE_SW1_MASK)) continue;
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDIMonitor, BTN_TONE_SW2_MASK)) continue;
+                    if (handleSimpleInjectedButton(pThis->m_UI.m_nMIDICompare, BTN_TONE_SW3_MASK)) continue;
+
+                    // MIDI ENTER is special.
+                    // For SR/RD500 overlays, mirror the remote ENTER tap behavior and
+                    // let the overlay UI handler consume ENTER locally.
+                    // In normal JV-880 UI, use the injected button mask so ENTER
+                    // behaves like a real press/release instead of a one-shot event.
+                    if (pThis->m_UI.m_nMIDIEnter != 0 &&
+                        ccNumber == pThis->m_UI.m_nMIDIEnter)
+                    {
+                        if (pThis->m_bSRMenuActive ||
+                            pThis->m_bRD500MenuActive ||
+                            pThis->m_bRD500PatchBrowseActive)
+                        {
+                            if (ccValue < 64)
+                            {
+                                pThis->m_UI.TriggerUIButtonEvent(CUIButton::BtnEventEnter);
+                            }
+                            else
+                            {
+                                pThis->m_UI.TriggerUIButtonEvent(CUIButton::BtnEventNone);
+                            }
+                        }
+                        else
+                        {
+                            if (ccValue < 64)
+                            {
+                                pThis->m_InjectedButtonMask |= BTN_ENTER_MASK;
+                            }
+                            else
+                            {
+                                pThis->m_InjectedButtonMask &= ~BTN_ENTER_MASK;
+                            }
+                        }
+
+                        i += 2;
+                        continue;
+                    }
+
+                    // MiniJV880 extension commands.
+                    if (pThis->m_UI.m_nMIDIAllRelease != 0 &&
+                        ccNumber == pThis->m_UI.m_nMIDIAllRelease &&
+                        ccValue < 64)
+                    {
+                        ClearMIDIHeldButtonsAndTimers();
+
+                        pThis->m_InjectedButtonMask = 0;
+                        pThis->mcu.mcu_button_pressed &= ~(
+                            BTN_DATA_MASK |
+                            BTN_PREVIEW_MASK |
+                            BTN_TONE_SELECT_MASK |
+                            BTN_ENTER_MASK
+                        );
+
+                        i += 2;
+                        continue;
+                    }
+
+                    // ENTER long is a one-shot command: it schedules a timed ENTER hold
+                    // long enough to be detected by the existing long-press logic.
+                    if (pThis->m_UI.m_nMIDIEnterLong != 0 &&
+                        ccNumber == pThis->m_UI.m_nMIDIEnterLong &&
+                        ccValue < 64)
+                    {
+                        uint32_t holdMs = pThis->m_pConfig->GetSYXMenuLongPressTimeout() + 500;
+                        if (holdMs < 1500)
+                            holdMs = 1500;
+
+                        uint32_t holdTicks = (holdMs + 9) / 10;
+                        if (holdTicks == 0)
+                            holdTicks = 1;
+
+                        __atomic_store_n(&g_MIDIEnterLongHoldUntilTick,
+                                          CTimer::Get()->GetTicks() + holdTicks,
+                                          __ATOMIC_RELAXED);
+
+                        i += 2;
+                        continue;
+                    }
+
+                    // Keep SR overlay separate from MIDIButtonData.
+                    if (pThis->m_UI.m_nMIDISROverlay != 0 &&
+                        ccNumber == pThis->m_UI.m_nMIDISROverlay &&
+                        ccValue < 64)
+                    {
+                        if (pThis->m_bSRMenuActive)
+                        {
+                            pThis->RequestCloseSRMenu();
+                        }
+                        else
+                        {
+                            pThis->OpenSRMenu();
+                        }
+                        i += 2;
+                        continue;
+                    }
+
+                    // DATA dial / encoder.
+                    // In normal JV-880 screens, MIDI DATA CW/CCW is forwarded to
+                    // the emulated encoder. Local MiniJV880 overlays must consume it
+                    // directly, otherwise SR/SYX/RD-500 lists do not move.
+                    auto handleOverlayOrEncoderDataDial = [&](int direction) {
+                        if (pThis->m_bSYXMenuActive) {
+                            if (direction > 0)
+                                pThis->NextSYX();
+                            else
+                                pThis->PrevSYX();
+                        } else if (pThis->m_bRD500PatchBrowseActive) {
+                            if (direction > 0)
+                                pThis->NextRD500Patch();
+                            else
+                                pThis->PrevRD500Patch();
+                        } else if (pThis->m_bRD500MenuActive) {
+                            if (direction > 0)
+                                pThis->NextRD500Bank();
+                            else
+                                pThis->PrevRD500Bank();
+                        } else if (pThis->m_bSRMenuActive) {
+                            if (direction > 0)
+                                pThis->NextSR();
+                            else
+                                pThis->PrevSR();
+                        } else {
+                            pThis->mcu.MCU_EncoderTrigger(direction > 0 ? 1 : 0);
+                        }
+                    };
+
                     if (ccNumber == pThis->m_UI.m_nMIDIUp && ccValue < 64) {
                         pThis->m_UI.TriggerUIButtonEvent(CUIButton::BtnEventNone);
-                        pThis->mcu.MCU_EncoderTrigger(1);
+                        handleOverlayOrEncoderDataDial(1);
                         i += 2;
                         continue;
                     }
                     if (ccNumber == pThis->m_UI.m_nMIDIDown && ccValue < 64) {
                         pThis->m_UI.TriggerUIButtonEvent(CUIButton::BtnEventNone);
-                        pThis->mcu.MCU_EncoderTrigger(0);
+                        handleOverlayOrEncoderDataDial(-1);
                         i += 2;
                         continue;
                     }

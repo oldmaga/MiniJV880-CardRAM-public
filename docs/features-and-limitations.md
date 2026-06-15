@@ -53,3 +53,14 @@ Compared with the original Mini-JV880pi starting point, this line adds and impro
 - SD-card folder names and shallow folder-depth rules must be respected.
 - The CardRAM tools are not a complete parameter-level JV-880 patch/performance editor; some areas, especially rhythm data, are handled as raw data.
 - Experimental SysEx-to-CardRAM mapping research is not included in the public-clean repository.
+
+<!-- MIDI_TOOL_LAB_FEATURES_START -->
+### PC-side MIDI button tool and MIDI Lab
+
+The PC-side MIDI button test tool now includes a tabbed interface:
+
+- **MIDI Buttons** provides a remote-panel style layout for the mapped MiniJV880 / JV-880 controls.
+- **MIDI Lab** provides a controlled experimental area for arbitrary CC tests, temporary presets with notes, limited raw MIDI byte sending, and ALL RELEASE / PANIC / CC 64.
+- MIDI Lab presets are intentionally non-persistent in this version.
+- Raw MIDI sending is intentionally limited to 1-3 bytes and does not support SysEx yet.
+<!-- MIDI_TOOL_LAB_FEATURES_END -->
