@@ -1461,7 +1461,11 @@ if (m_bSYXMenuActive)
        memcpy(&mcu.lcd.LCD_Data[40], "Folder empty", 12);
     }
 
-    bool enterNow = (m_UI.GetUIButtons()->GetRawMask() & (1 << 7)) != 0;
+    const uint32_t syxInputMask =
+        m_UI.GetUIButtons()->GetRawMask() |
+        GetMIDIHeldButtonMaskWithTimedEnter();
+
+    bool enterNow = (syxInputMask & BTN_ENTER_MASK) != 0;
 
     uint32_t syxLongPressMs = m_pConfig->GetSYXMenuLongPressTimeout();
     uint32_t syxLongPressTicks = (syxLongPressMs + 9) / 10;   // ms -> 10 ms ticks
@@ -2073,6 +2077,23 @@ void CMiniJV880::ParseMIDIData(CMiniJV880* pThis, const u8* pData, unsigned nLen
                     if (pThis->m_UI.m_nMIDIEnter != 0 &&
                         ccNumber == pThis->m_UI.m_nMIDIEnter)
                     {
+                        // SYX browser local ENTER tap:
+                        // Short press/release must be visible to syxInputMask.
+                        // Ignore the MIDI release; the timed tap will release itself.
+                        if (pThis->m_bSYXMenuActive)
+                        {
+                            if (ccValue < 64)
+                            {
+                                const uint32_t tapTicks = 15; // ~150 ms, below long-press threshold
+                                __atomic_store_n(&g_MIDIEnterTapHoldUntilTick,
+                                                  CTimer::Get()->GetTicks() + tapTicks,
+                                                  __ATOMIC_RELAXED);
+                            }
+
+                            i += 2;
+                            continue;
+                        }
+
                         if (pThis->m_bSRMenuActive ||
                             pThis->m_bRD500MenuActive ||
                             pThis->m_bRD500PatchBrowseActive)
