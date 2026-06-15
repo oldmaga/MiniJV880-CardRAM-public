@@ -10,6 +10,7 @@ Compared with the original Mini-JV880pi starting point, this line adds and impro
 - SR-JV80 expansion ROM support through overlay/menu workflow.
 - PN-JV80 ROM support through overlay/menu workflow with encoder long press.
 - `PN-JV80/` local SysEx folder workflow through overlay/menu workflow with encoder long press.
+- Optional MIDI CC button control for SR overlay toggle, DATA dial steps and PN-JV80/SYX browser ENTER/long-ENTER navigation.
 - Optional Roland RD-500 patches workflow from the SR overlay/menu.
 - Full SD-backed CardRAM support, including initialize, write, copy and related JV-880 workflows.
 - `CARD-RAM/` collection workflow with `current.txt` active-card selection.
@@ -57,10 +58,14 @@ Compared with the original Mini-JV880pi starting point, this line adds and impro
 <!-- MIDI_TOOL_LAB_FEATURES_START -->
 ### PC-side MIDI button tool and MIDI Lab
 
-The PC-side MIDI button test tool now includes a tabbed interface:
+The PC-side MIDI button test tool includes a tabbed interface:
 
 - **MIDI Buttons** provides a remote-panel style layout for the mapped MiniJV880 / JV-880 controls.
 - **MIDI Lab** provides a controlled experimental area for arbitrary CC tests, temporary presets with notes, limited raw MIDI byte sending, and ALL RELEASE / PANIC / CC 64.
+- **SR overlay toggle / CC 62** allows the SR overlay to be opened and closed from MIDI.
+- **DATA dial CW / CC 60** and **DATA dial CCW / CC 61** provide encoder-style one-step movement in normal screens and in local overlays such as SR, RD-500 and PN-JV80/SYX.
+- **ENTER / CC 59** now works inside the PN-JV80/SYX browser for entering folders or loading the selected `.SYX` file.
+- **ENTER LONG / CC 63** opens the PN-JV80/SYX menu from normal UI contexts and acts as back/exit while the browser is open.
 - MIDI Lab presets are intentionally non-persistent in this version.
 - Raw MIDI sending is intentionally limited to 1-3 bytes and does not support SysEx yet.
 <!-- MIDI_TOOL_LAB_FEATURES_END -->

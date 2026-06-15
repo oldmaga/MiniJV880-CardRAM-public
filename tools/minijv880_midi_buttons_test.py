@@ -11,8 +11,13 @@ Current MiniJV880 firmware behavior:
   CC value < 64 triggers the button/command.
   CC value >= 64 sends BtnEventNone for normal MIDI buttons.
 
-For the new SR overlay command:
-  MIDIButtonSROverlay = CC 62
+For MiniJV880 extension commands:
+  MIDIButtonEnter      = CC 59  (also selects/loads inside PN-JV80/SYX browser)
+  MIDIButtonUp         = CC 60  (DATA dial forward / clockwise)
+  MIDIButtonDown       = CC 61  (DATA dial backward / counter-clockwise)
+  MIDIButtonSROverlay  = CC 62
+  MIDIButtonEnterLong  = CC 63  (open/back/exit PN-JV80/SYX browser)
+  MIDIButtonAllRelease = CC 64
   recommended test value = 0
 """
 
@@ -426,8 +431,11 @@ class App(tk.Tk):
             "- PREVIEW, TONE SELECT and DATA use hold/release behavior.\n"
             "- The LED shows whether the hold is currently active.\n"
             "- Value <64 means ON/down; value >=64 means OFF/up.\n\n"
-            "DATA and extensions:\n"
-            "- DATA dial ◀ / DATA dial ▶ are one-step encoder movements.\n"
+            "DATA, SYX and extensions:\n"
+            "- DATA dial CW / DATA dial CCW are one-step encoder movements.\n"
+            "- They work in normal screens and in SR, RD-500 and PN-JV80/SYX overlays.\n"
+            "- ENTER / CC59 selects folders/files inside the PN-JV80/SYX browser.\n"
+            "- ENTER LONG / CC63 opens the PN-JV80/SYX browser and works as back/exit while it is open.\n"
             "- DATA / CC49 is kept for completeness; in release 2.4.0 the DATA CC event itself has no practical effect.\n"
             "- SR overlay, ENTER LONG and ALL RELEASE are MiniJV880 extension commands.\n"
             "- ALL RELEASE is a safety/panic command for clearing held MIDI states."
@@ -584,7 +592,7 @@ class App(tk.Tk):
         add_tap_button(main_grid, 1, 3, "TONE SW 3\nINFO / COMPARE", 58)
         add_tap_button(main_grid, 1, 4, "TONE SW 4\nENTER", 59)
 
-        helpers = ttk.LabelFrame(buttons_tab, text="Cursor / DATA dial / ENTER LONG")
+        helpers = ttk.LabelFrame(buttons_tab, text="Cursor / DATA dial / SYX ENTER LONG")
         helpers.pack(fill="x", pady=(0, 6))
 
         helpers_grid = ttk.Frame(helpers, padding=5)
@@ -594,7 +602,7 @@ class App(tk.Tk):
         add_tap_button(helpers_grid, 0, 1, "CURSOR ▶", 48)
         add_tap_button(helpers_grid, 0, 2, "DATA dial ◀", 61)
         add_tap_button(helpers_grid, 0, 3, "DATA dial ▶", 60)
-        add_tap_button(helpers_grid, 0, 4, "ENTER LONG", 63)
+        add_tap_button(helpers_grid, 0, 4, "ENTER LONG\nSYX menu", 63)
 
         ext = ttk.LabelFrame(buttons_tab, text="MiniJV880 extension / hold safety")
         ext.pack(fill="x", pady=(0, 6))

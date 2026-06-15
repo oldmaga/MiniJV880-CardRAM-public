@@ -105,6 +105,7 @@ Main additions and improvements in this line include:
 - HTTP/TFTP local maintenance workflows for Ethernet-based management.
 - Optional MiniJV880/MiniDexed dualboot setup using a separate example configuration.
 - PN-JV80 local SysEx folder workflow.
+- Optional MIDI CC button control for operating MiniJV880 without the physical front-panel buttons, including SR overlay toggle, DATA dial steps and PN-JV80/SYX browser ENTER/long-ENTER control.
 - RD-500 optional file workflow through the SR overlay/menu.
 - Full front-panel GPIO button handling for the MiniJV880 hardware layout.
 - Play Mode auto-recovery and Patch/Performance synchronization fixes.
