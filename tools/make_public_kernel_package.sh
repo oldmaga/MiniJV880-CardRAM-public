@@ -161,7 +161,20 @@ Basic usage
 Prepare a bootable Raspberry Pi 4 FAT32 boot partition using the required
 Raspberry Pi boot files from an appropriate, separately obtained source.
 
-Then copy this kernel image to the root of that FAT32 boot partition.
+Copy this kernel image according to the selected layout:
+
+  Legacy/singleboot:
+    /kernel8-rpi4.img
+
+  Optional two-system Dualboot:
+    /minijv880/kernel8-rpi4.img
+
+In the Dualboot layout, do not overwrite the fixed second-system slot:
+
+    /minidexed/kernel8-rpi4.img
+
+That slot may contain MiniDexed or DreamDexed together with the matching .ini
+configuration.
 
 You will also need a suitable MiniJV880 configuration and any required runtime
 files according to the public documentation. Do not use private or copyrighted
