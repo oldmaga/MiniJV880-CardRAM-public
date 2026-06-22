@@ -383,6 +383,7 @@ CMiniJV880::CMiniJV880(CConfig *pConfig, CInterruptSystem *pInterrupt,
     : CMultiCoreSupport(CMemorySystem::Get()), m_pConfig(pConfig),
       m_pFileSystem(pFileSystem), 
       m_Serial(pInterrupt, TRUE),
+      m_MIDISendBuffer(&m_Serial, 16384),
       m_pSoundDevice(0),
       screenUnbuffered(mScreenUnbuffered),
       m_bChannelsSwapped(pConfig->GetChannelsSwapped()),
@@ -691,6 +692,10 @@ bool CMiniJV880::Initialize(void) {
   ser_options &= ~(SERIAL_OPTION_ONLCR);
   m_Serial.SetOptions(ser_options);
   LOGNOTE("Serial MIDI Initialized");
+
+  // Forward bytes completed by the emulated JV-880 UART to the
+  // cross-core MIDI output buffer.
+  mcu.MCU_SetUARTTXCallback(&CMiniJV880::HandleMCUUARTTX, this);
 
   LOGNOTE("Loading emu files");
 
@@ -2615,6 +2620,17 @@ void CMiniJV880::DeviceRemovedHandler(CDevice *pDevice, void *pContext) {
     pThis->m_pMIDIDevice = 0;
 }
 
+bool CMiniJV880::HandleMCUUARTTX(void *context, uint8_t data)
+{
+    CMiniJV880 *pThis = static_cast<CMiniJV880 *>(context);
+    if (pThis == nullptr)
+        return false;
+
+    // Write() is cross-core safe. The byte is captured when the
+    // emulated firmware commits TDR to transmission.
+    return pThis->m_MIDISendBuffer.Write(&data, 1) == 1;
+}
+
 void CMiniJV880::Run(unsigned nCore) {
     assert(1 <= nCore && nCore < CORES);
     //int nSamples = 0;
@@ -2622,9 +2638,20 @@ void CMiniJV880::Run(unsigned nCore) {
 
     if (nCore == 1) { // 1st core - serial MIDI
         while (true) {
+            // CWriteBufferDevice removes bytes before writing them to
+            // the target device. Limit each update to the exact free
+            // space in the serial TX ring to prevent partial-write loss.
+            unsigned nWritable = m_Serial.GetAvailableForWrite();
+            if (nWritable > sizeof(buffer))
+                nWritable = sizeof(buffer);
+
+            if (nWritable > 0)
+                m_MIDISendBuffer.Update(nWritable);
+
             int nRead = m_Serial.Read(buffer, sizeof(buffer));
             if (nRead > 0)
                 ParseMIDIData(this, buffer, nRead);
+
             CTimer::SimpleMsDelay(1);
         }
     } 

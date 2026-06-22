@@ -87,6 +87,11 @@ void MCU::MCU_DeviceWrite(uint32_t address, const uint8_t data) {
   case DEV_P7DDR:
     break;
   case DEV_SCR:
+    // TXI is level-derived from TDRE and the SCR transmit-interrupt
+    // enable bit. The firmware clears TIE when its final byte has been
+    // handled; deassert the already-pending emulator request at once.
+    if ((data & 0x80) == 0)
+      MCU_Interrupt_SetRequest(INTERRUPT_SOURCE_UART_TX, 0);
     break;
   case DEV_WCR:
     break;
@@ -139,6 +144,11 @@ void MCU::MCU_DeviceWrite(uint32_t address, const uint8_t data) {
   case DEV_TMR_TCORA:
     break;
   case DEV_TDR:
+    // TDR is the only point that observes every byte written by the
+    // emulated JV-880 firmware. Queue the value before the register
+    // can be overwritten by the following byte.
+    if (uart_tx_callback != nullptr)
+      (void) uart_tx_callback(uart_tx_callback_context, data);
     break;
   case DEV_ADCSR: {
     dev_register[address] &= ~0x7f;
@@ -153,22 +163,31 @@ void MCU::MCU_DeviceWrite(uint32_t address, const uint8_t data) {
   }
   case DEV_SSR: {
     if ((data & 0x80) == 0 && (ssr_rd & 0x80) != 0) {
-      dev_register[address] &= ~0x80;
+      // The firmware has committed TDR to transmission.
+      // Preserve the original TDRE timing, but mark the transmitter
+      // active and cancel any pending end-of-transmission indication.
+      dev_register[address] &= ~(uint8_t)(0x80 | 0x04);
       uart_tx_delay = mcu.cycles + 3000;
       MCU_Interrupt_SetRequest(INTERRUPT_SOURCE_UART_TX, 0);
     }
+
     if ((data & 0x40) == 0 && (ssr_rd & 0x40) != 0) {
       uart_rx_delay = mcu.cycles + 3000;
       dev_register[address] &= ~0x40;
       MCU_Interrupt_SetRequest(INTERRUPT_SOURCE_UART_RX, 0);
     }
-    if ((data & 0x20) == 0 && (ssr_rd & 0x20) != 0) {
+
+    if ((data & 0x20) == 0 && (ssr_rd & 0x20) != 0)
       dev_register[address] &= ~0x20;
-    }
-    if ((data & 0x10) == 0 && (ssr_rd & 0x10) != 0) {
+
+    if ((data & 0x10) == 0 && (ssr_rd & 0x10) != 0)
       dev_register[address] &= ~0x10;
-    }
-    break;
+
+    // TEND is read-only. Preserve the internally generated value
+    // instead of accepting bit 2 from the firmware's SSR write.
+    const uint8_t tend = dev_register[address] & 0x04;
+    dev_register[address] = (uint8_t)((data & ~0x04) | tend);
+    return;
   }
   default:
     address += 0;
@@ -296,7 +315,10 @@ uint8_t MCU::MCU_DeviceRead(uint32_t address) {
 
 void MCU::MCU_DeviceReset() {
   dev_register[DEV_RAME] = 0x80;
-  dev_register[DEV_SSR] = 0x80;
+
+  // SCI reset state: TDR empty and complete transmitter idle.
+  // TDRE=1, TEND=1.
+  dev_register[DEV_SSR] = 0x84;
 }
 
 void MCU::MCU_UpdateAnalog(const uint64_t cycles) {
@@ -479,6 +501,11 @@ void MCU::MCU_Reset() {
   MCU_DeviceReset();
 }
 
+void MCU::MCU_SetUARTTXCallback(UARTTXCallback callback, void *context) {
+  uart_tx_callback = callback;
+  uart_tx_callback_context = context;
+}
+
 void MCU::MCU_PostUART(const uint8_t data) {
   if (!midi_ready)
     return;
@@ -505,9 +532,13 @@ void MCU::MCU_UpdateUART_RX() {
                            (dev_register[DEV_SCR] & 0x40) != 0);
 }
 
-// dummy TX
+// Emulated UART byte completion.
+//
+// This emulator has no separate hardware shift register. Once the
+// established byte delay expires, both TDR-empty and transmitter-end
+// are exposed. A following firmware commit clears both flags again.
 void MCU::MCU_UpdateUART_TX() {
-  if ((dev_register[DEV_SCR] & 32) == 0) // TX disabled
+  if ((dev_register[DEV_SCR] & 0x20) == 0) // TX disabled
     return;
 
   if (dev_register[DEV_SSR] & 0x80)
@@ -516,11 +547,10 @@ void MCU::MCU_UpdateUART_TX() {
   if (mcu.cycles < uart_tx_delay)
     return;
 
-  dev_register[DEV_SSR] |= 0x80;
+  dev_register[DEV_SSR] |= (uint8_t)(0x80 | 0x04);
+
   MCU_Interrupt_SetRequest(INTERRUPT_SOURCE_UART_TX,
                            (dev_register[DEV_SCR] & 0x80) != 0);
-
-  // printf("tx:%x\n", dev_register[DEV_TDR]);
 }
 
 void MCU::MCU_PatchROM() {

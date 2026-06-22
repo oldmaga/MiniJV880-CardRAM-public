@@ -264,6 +264,7 @@ const uint32_t uart_buffer_size = 8192;
 //extern int sample_write_ptr;
 
 struct MCU {
+  using UARTTXCallback = bool (*)(void *context, uint8_t data);
   uint32_t mcu_button_pressed;
 
   mcu_t mcu;
@@ -301,6 +302,9 @@ struct MCU {
   uint8_t uart_rx_byte;
   uint64_t uart_rx_delay;
   uint64_t uart_tx_delay;
+
+  UARTTXCallback uart_tx_callback = nullptr;
+  void *uart_tx_callback_context = nullptr;
 
   uint32_t operand_type;
   uint16_t operand_ea;
@@ -363,6 +367,7 @@ struct MCU {
   void ReplaceExpansionSafe(const uint8_t* new_exp);
 
   void MCU_PostUART(const uint8_t data);
+  void MCU_SetUARTTXCallback(UARTTXCallback callback, void *context);
   void MCU_EncoderTrigger(const int dir);
 
   void MCU_ErrorTrap();

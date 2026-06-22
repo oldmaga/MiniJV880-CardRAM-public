@@ -40,6 +40,7 @@
 #include <fatfs/ff.h>
 #include <stdint.h>
 #include <circle/serial.h>
+#include <circle/writebuffer.h>
 #include <atomic>
 
     // ============================================================
@@ -59,6 +60,20 @@
     };
 
 
+class CMIDISerialDevice : public CSerialDevice
+{
+public:
+    CMIDISerialDevice(CInterruptSystem *pInterruptSystem, boolean bUseFIQ)
+    : CSerialDevice(pInterruptSystem, bUseFIQ)
+    {
+    }
+
+    unsigned GetAvailableForWrite()
+    {
+        return AvailableForWrite();
+    }
+};
+
 class CMiniJV880 : public CMultiCoreSupport
 {
 public:
@@ -76,6 +91,7 @@ public:
     static void USBMIDIMessageHandler(unsigned nCable, u8 *pPacket, unsigned nLength);
     static void DeviceRemovedHandler(CDevice *pDevice, void *pContext);
     static void ParseMIDIData(CMiniJV880* pThis, const u8* pData, unsigned nLength);
+    static bool HandleMCUUARTTX(void *context, uint8_t data);
 
     static CMiniJV880* GetInstance() { return s_pThis; }
     void ShowKernelRebootMessage();
@@ -205,7 +221,8 @@ private:
     FATFS *m_pFileSystem;
 
     CUSBMIDIDevice *volatile m_pMIDIDevice = nullptr;
-    CSerialDevice m_Serial;
+    CMIDISerialDevice m_Serial;
+    CWriteBufferDevice m_MIDISendBuffer;
 
     int lastEncoderPos = 0;
     CSoundBaseDevice *m_pSoundDevice;
