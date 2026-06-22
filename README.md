@@ -56,7 +56,7 @@ Optional dualboot-aware setups can instead keep the MiniJV880 kernel in a dedica
 
     src/config-dualboot-data-gpio12.txt
 
-In that optional layout, DATA held at power-on can select MiniDexed, while normal boot remains MiniJV880. The normal `src/config.txt` stays the default singleboot example.
+In that optional two-system layout, normal boot remains MiniJV880. Holding DATA at power-on selects the second-system slot, which may contain MiniDexed or DreamDexed together with the matching `.ini` configuration. The normal `src/config.txt` stays the default singleboot example.
 
 Important runtime folder names such as `roms/`, `CARD-RAM/`, `PN-JV80/`, `PN-JV80/Roland-PN/` and `RD-500/` must be kept exactly as documented.
 
@@ -103,9 +103,10 @@ Main additions and improvements in this line include:
 - PC-side external Remote GUI for development, maintenance and front-panel testing.
 - Export/import support for raw .patchslot files.
 - HTTP/TFTP local maintenance workflows for Ethernet-based management.
-- Optional MiniJV880/MiniDexed dualboot setup using a separate example configuration.
+- Optional two-system Dualboot setup: MiniJV880 as the first system, with MiniDexed or DreamDexed as the second system, using the matching kernel and `.ini` file.
 - PN-JV80 local SysEx folder workflow.
 - Optional MIDI CC button control for operating MiniJV880 without the physical front-panel buttons, including SR overlay toggle, DATA dial steps and PN-JV80/SYX browser ENTER/long-ENTER control.
+- Serial MIDI OUT from the emulated JV-880 UART, with buffered delivery to the Raspberry Pi UART and validated Temporary Dump and Bulk Dump SysEx transfer; serial MIDI IN remains available.
 - RD-500 optional file workflow through the SR overlay/menu.
 - Full front-panel GPIO button handling for the MiniJV880 hardware layout.
 - Play Mode auto-recovery and Patch/Performance synchronization fixes.

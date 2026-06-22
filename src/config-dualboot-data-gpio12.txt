@@ -1,5 +1,7 @@
 #
-# Optional MiniJV880 + MiniDexed dualboot configuration for Raspberry Pi 4.
+# Optional two-system Dualboot configuration for Raspberry Pi 4.
+# First system: MiniJV880.
+# Second system: MiniDexed or DreamDexed.
 #
 # This file is NOT the default config.txt.
 #
@@ -19,14 +21,19 @@
 #
 #        /minijv880/kernel8-rpi4.img
 #
-#   5. Copy the MiniDexed kernel to:
+#   5. Copy the selected second-system kernel, MiniDexed or
+#      DreamDexed, to:
 #
 #        /minidexed/kernel8-rpi4.img
+#
+#      Install the matching second-system .ini file required by
+#      the selected implementation.
 #
 # Boot selection:
 #
 #   - DATA not pressed at power-on: MiniJV880
-#   - DATA held at power-on:        MiniDexed
+#   - DATA held at power-on:        selected second system
+#                                    (MiniDexed or DreamDexed)
 #
 # Hardware assumption:
 #
@@ -42,8 +49,8 @@
 #        /minijv880/kernel8-rpi4.img.new
 #        /minijv880/kernel8-rpi4.img.bak
 #
-#   The MiniDexed kernel under /minidexed/ is detection-only/read-only
-#   from the MiniJV880 maintenance workflow.
+#   The second-system kernel under /minidexed/ is
+#   detection-only/read-only from the MiniJV880 maintenance workflow.
 #
 # https://www.raspberrypi.com/documentation/computers/config_txt.html
 #
@@ -58,7 +65,7 @@ disable_overscan=0
 #
 # DATA boot selector.
 # GPIO12 high/default: MiniJV880.
-# GPIO12 low/DATA held: MiniDexed.
+# GPIO12 low/DATA held: selected second system.
 #
 
 gpio=12=ip,pu
@@ -78,7 +85,9 @@ armstub=armstub8-rpi4.bin
 # Default boot target: MiniJV880
 kernel=/minijv880/kernel8-rpi4.img
 
-# DATA held at power-on: GPIO12 low -> MiniDexed
+# DATA held at power-on: GPIO12 low -> selected second system
+# The /minidexed/ path is the fixed second-system slot and may
+# contain either the MiniDexed or DreamDexed kernel.
 [gpio12=0]
 kernel=/minidexed/kernel8-rpi4.img
 

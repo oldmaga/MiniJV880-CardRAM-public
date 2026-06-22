@@ -145,11 +145,13 @@ In that layout, the MiniJV880 managed kernel files are:
     /minijv880/kernel8-rpi4.img.new
     /minijv880/kernel8-rpi4.img.bak
 
-A MiniDexed kernel, if present, is normally placed at:
+The kernel for the second system is placed in the fixed second-system slot:
 
     /minidexed/kernel8-rpi4.img
 
-MiniJV880 treats the MiniDexed kernel as detection-only/read-only context. MiniJV880 HTTP/TFTP kernel maintenance must only stage, activate, back up or delete the managed MiniJV880 kernel files under `/minijv880/`.
+That kernel may be MiniDexed or DreamDexed. Install the matching second-system `.ini` file required by the selected implementation.
+
+MiniJV880 treats the kernel in `/minidexed/` as detection-only/read-only context. MiniJV880 HTTP/TFTP kernel maintenance must only stage, activate, back up or delete the managed MiniJV880 kernel files under `/minijv880/`.
 
 The remaining MiniJV880 runtime folders such as `roms/`, `CARD-RAM/`, `PN-JV80/`, `RD-500/` and optional `tools/` stay at the SD-card root unless documented otherwise.
 

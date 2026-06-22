@@ -96,13 +96,13 @@ The optional Raspberry Pi boot configuration example for this layout is:
 
     src/config-dualboot-data-gpio12.txt
 
-Copy it to the SD-card root as `config.txt` only when you intentionally want to enable the MiniJV880/MiniDexed dualboot selector.
+Copy it to the SD-card root as `config.txt` only when you intentionally want to enable the two-system Dualboot selector.
 
-When a MiniDexed kernel is present at:
+The second-system slot is:
 
     SD:/minidexed/kernel8-rpi4.img
 
-it is treated as read-only/detection-only by MiniJV880. MiniJV880 HTTP/TFTP kernel maintenance must not create, overwrite, activate, back up or delete the MiniDexed kernel.
+It may contain either a MiniDexed or DreamDexed kernel, accompanied by the matching `.ini` configuration. The kernel in this slot is treated as read-only/detection-only by MiniJV880. MiniJV880 HTTP/TFTP kernel maintenance must not create, overwrite, activate, back up or delete the second-system kernel.
 
 The public TFTP remote name for MiniJV880 kernel staging remains:
 

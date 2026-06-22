@@ -20,9 +20,10 @@ Compared with the original Mini-JV880pi starting point, this line adds and impro
 - DATA long press plus rotary encoder for native A/B/I/C bank selection.
 - Usable 12-button panel, with erratic button behavior fixed.
 - Bit-banged serial debug log output on GPIO4, leaving the standard UART pins GPIO14/GPIO15 free for MIDI.
+- Serial MIDI OUT forwarding from the emulated JV-880 UART to the physical GPIO14 UART, including long Roland SysEx dumps, while serial MIDI IN on GPIO15 remains available.
 - Embedded local HTTP server for status, SD-card browsing and maintenance workflows.
 - Kernel and INI staging/maintenance plus reboot workflow over the local network.
-- Optional MiniJV880/MiniDexed dualboot setup, using a separate example configuration while keeping the normal MiniJV880 singleboot configuration as the default.
+- Optional two-system Dualboot setup, with MiniJV880 as the first system and either MiniDexed or DreamDexed as the second system, using the matching kernel and `.ini` file; the normal MiniJV880 singleboot configuration remains the default.
 - PC-side CardRAM command-line tool.
 - PC-side Tkinter CardRAM manager GUI.
 - PC-side external Remote GUI for development and maintenance testing.
@@ -43,6 +44,7 @@ Compared with the original Mini-JV880pi starting point, this line adds and impro
 - Some workflows use MiniJV880-specific controls, especially DATA short/long press.
 - The optional dualboot setup is not enabled by default and requires manual SD-card preparation.
 - Raspberry Pi 4 Model B is the main tested target; Raspberry Pi 5 and lower-memory/older boards are not validation targets for this release.
+- MIDI OUT requires a proper 5-pin DIN current-loop output stage electrically suitable for 3.3 V logic. GPIO14 must not be connected directly to a MIDI DIN socket, and 5 V-oriented shields may require verified resistor or level adaptation.
 - SR-JV80 images are loaded into RAM at boot; each valid SR image uses about 8 MB.
 - Ethernet is the recommended network path; Wi-Fi/WLAN is present only as experimental work and is not considered reliable or supported in this release.
 - The embedded HTTP/TFTP maintenance interface is intended for trusted local networks only, not Internet exposure.
@@ -54,6 +56,34 @@ Compared with the original Mini-JV880pi starting point, this line adds and impro
 - SD-card folder names and shallow folder-depth rules must be respected.
 - The CardRAM tools are not a complete parameter-level JV-880 patch/performance editor; some areas, especially rhythm data, are handled as raw data.
 - Experimental SysEx-to-CardRAM mapping research is not included in the public-clean repository.
+
+### Serial MIDI IN and MIDI OUT
+
+The Raspberry Pi hardware UART is reserved for standard serial MIDI at
+31,250 baud:
+
+- GPIO14 / TXD provides MIDI OUT.
+- GPIO15 / RXD provides MIDI IN.
+- GPIO4 remains the separate debug-log TX output at 38,400 baud.
+
+MIDI OUT forwards bytes written by the emulated JV-880 firmware UART to the
+physical UART through a cross-core 16,384-byte buffer. The implementation
+preserves MIDI IN processing and keeps debug text away from GPIO14/GPIO15.
+
+The public Dualboot kernel was validated with:
+
+- `Utility -> Temporary Dump -> All`: 8,124 bytes, 105 complete Roland DT1
+  packets and 105 valid checksums.
+- `Utility -> Bulk Dump -> INT > MIDI`: 45,795 bytes, 525 complete Roland DT1
+  packets, 525 valid checksums and the expected INT address range.
+- MIDI IN CC 62 opening and closing the SR overlay after MIDI OUT transfers.
+- Continuous GPIO4 debug-log operation during the tests.
+
+A proper MIDI electrical interface is still mandatory. The software support
+does not make a direct GPIO-to-DIN connection safe. Use a current-loop MIDI OUT
+circuit designed or verified for 3.3 V logic. Arduino-style or other 5 V-oriented
+MIDI shields may require board-specific resistor or level adaptation; verify the
+actual schematic and current before modifying hardware.
 
 <!-- MIDI_TOOL_LAB_FEATURES_START -->
 ### PC-side MIDI button tool and MIDI Lab
