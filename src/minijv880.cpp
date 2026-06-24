@@ -375,6 +375,138 @@ extern "C" void MiniJV880_ShowKernelRebootMessage(void)
     }
 }
 
+static uint8_t s_LCDOverlaySnapshot[80];
+static bool s_LCDOverlaySnapshotValid = false;
+static bool s_LCDOverlayRestorePending = false;
+
+static void SaveLCDOverlaySnapshot(const uint8_t *pLCDData)
+{
+    if (pLCDData == 0)
+        return;
+
+    // Save only the native firmware screen before entering an overlay.
+    // Do not overwrite the snapshot while an overlay is already active.
+    if (s_LCDOverlaySnapshotValid)
+        return;
+
+    memcpy(s_LCDOverlaySnapshot, pLCDData, sizeof s_LCDOverlaySnapshot);
+    s_LCDOverlaySnapshotValid = true;
+    s_LCDOverlayRestorePending = false;
+}
+
+static void ScheduleLCDOverlayRestoreAfterUtilityDone(void)
+{
+    if (s_LCDOverlaySnapshotValid)
+        s_LCDOverlayRestorePending = true;
+}
+
+static void CancelLCDOverlaySnapshot(void)
+{
+    s_LCDOverlaySnapshotValid = false;
+    s_LCDOverlayRestorePending = false;
+}
+
+static void RestoreLCDOverlaySnapshotAfterUtilityDone(uint8_t *pLCDData)
+{
+    if (pLCDData == 0)
+        return;
+
+    if (!s_LCDOverlaySnapshotValid || !s_LCDOverlayRestorePending)
+        return;
+
+    memcpy(pLCDData, s_LCDOverlaySnapshot, sizeof s_LCDOverlaySnapshot);
+    s_LCDOverlaySnapshotValid = false;
+    s_LCDOverlayRestorePending = false;
+}
+
+static char MiniJV880_MapLCDReadbackChar(uint8_t ch)
+{
+    // ASCII-safe LCD readback mapping.
+    // 0x09 is used by the JV LCD data as a custom vertical separator.
+    // 0x7E/0x7F are HD44780-style arrow glyphs on the physical LCD.
+    switch (ch)
+    {
+    case 0x09: return '|';
+    case 0x7E: return '>';
+    case 0x7F: return '<';
+    default:
+        break;
+    }
+
+    if (ch < 32 || ch > 126)
+        return '.';
+
+    return (char)ch;
+}
+
+static void MiniJV880_CopyLCDLine24(char *pDst, unsigned nDstSize, const uint8_t *pSrc)
+{
+    if (pDst == 0 || nDstSize == 0)
+        return;
+
+    unsigned n = nDstSize - 1;
+    if (n > 24)
+        n = 24;
+
+    for (unsigned i = 0; i < n; ++i)
+    {
+        pDst[i] = MiniJV880_MapLCDReadbackChar(pSrc[i]);
+    }
+
+    pDst[n] = '\0';
+}
+
+extern "C" int MiniJV880_GetLCDSnapshot(char *pLine1, unsigned nLine1Size,
+                                        char *pLine2, unsigned nLine2Size)
+{
+    if (pLine1 == 0 || pLine2 == 0 || nLine1Size == 0 || nLine2Size == 0)
+        return 0;
+
+    pLine1[0] = '\0';
+    pLine2[0] = '\0';
+
+    CMiniJV880 *pThis = CMiniJV880::GetInstance();
+    if (pThis == 0)
+        return 0;
+
+    MiniJV880_CopyLCDLine24(pLine1, nLine1Size, pThis->mcu.lcd.LCD_Data + 0);
+    MiniJV880_CopyLCDLine24(pLine2, nLine2Size, pThis->mcu.lcd.LCD_Data + 40);
+
+    return 1;
+}
+
+extern "C" int MiniJV880_GetLCDCursorSnapshot(unsigned *pRow, unsigned *pCol,
+                                             unsigned *pEnabled, unsigned *pVisible,
+                                             unsigned *pAddress)
+{
+    if (pRow == 0 || pCol == 0 || pEnabled == 0 || pVisible == 0 || pAddress == 0)
+        return 0;
+
+    *pRow = 0;
+    *pCol = 0;
+    *pEnabled = 0;
+    *pVisible = 0;
+    *pAddress = 0;
+
+    CMiniJV880 *pThis = CMiniJV880::GetInstance();
+    if (pThis == 0)
+        return 0;
+
+    const unsigned nAddress = pThis->mcu.lcd.LCD_DD_RAM & 0x7F;
+    const unsigned nRow = nAddress / 0x40;
+    const unsigned nCol = nAddress % 0x40;
+    const unsigned nEnabled = pThis->mcu.lcd.LCD_C ? 1 : 0;
+    const unsigned nVisible = (nEnabled && nRow < 2 && nCol < 24) ? 1 : 0;
+
+    *pRow = nRow;
+    *pCol = nCol;
+    *pEnabled = nEnabled;
+    *pVisible = nVisible;
+    *pAddress = nAddress;
+
+    return 1;
+}
+
 LOGMODULE("minijv880");
 
 CMiniJV880::CMiniJV880(CConfig *pConfig, CInterruptSystem *pInterrupt,
@@ -1123,6 +1255,80 @@ static uint32_t GetMIDIHeldButtonMaskWithTimedEnter()
 }
 
 
+// ------------------------------------------------------------
+// Remote control input state
+// ------------------------------------------------------------
+// This is intentionally generic: HTTP/network code can set or clear raw
+// button bits without knowing anything about GPIO. The MiniJV880 main loop
+// consumes this as a second input source next to the physical buttons.
+static uint32_t g_RemoteButtonMask = 0;
+static uint32_t g_RemoteTapMask = 0;
+static uint32_t g_RemoteTapHoldMask = 0;
+static uint32_t g_RemoteTapReleaseMask = 0;
+static int g_RemoteEncoderDelta = 0;
+
+extern "C" int MiniJV880_RemoteButtonMaskDown(uint32_t mask)
+{
+    if (mask == 0)
+        return 0;
+
+    if (CMiniJV880::GetInstance() == 0)
+        return 0;
+
+    __atomic_or_fetch(&g_RemoteButtonMask, mask, __ATOMIC_RELAXED);
+    return 1;
+}
+
+extern "C" int MiniJV880_RemoteButtonMaskUp(uint32_t mask)
+{
+    if (mask == 0)
+        return 0;
+
+    if (CMiniJV880::GetInstance() == 0)
+        return 0;
+
+    __atomic_and_fetch(&g_RemoteButtonMask, ~mask, __ATOMIC_RELAXED);
+    __atomic_and_fetch(&g_RemoteTapMask, ~mask, __ATOMIC_RELAXED);
+    __atomic_and_fetch(&g_RemoteTapHoldMask, ~mask, __ATOMIC_RELAXED);
+    __atomic_and_fetch(&g_RemoteTapReleaseMask, ~mask, __ATOMIC_RELAXED);
+    return 1;
+}
+
+extern "C" int MiniJV880_RemoteButtonMaskTap(uint32_t mask)
+{
+    if (mask == 0)
+        return 0;
+
+    if (CMiniJV880::GetInstance() == 0)
+        return 0;
+
+    __atomic_or_fetch(&g_RemoteTapMask, mask, __ATOMIC_RELAXED);
+    return 1;
+}
+
+extern "C" int MiniJV880_RemoteButtonMaskClear(void)
+{
+    __atomic_store_n(&g_RemoteButtonMask, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_RemoteTapMask, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_RemoteTapHoldMask, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_RemoteTapReleaseMask, 0u, __ATOMIC_RELAXED);
+    return 1;
+}
+
+extern "C" int MiniJV880_RemoteEncoder(int direction)
+{
+    if (CMiniJV880::GetInstance() == 0)
+        return 0;
+
+    // direction: 1 = CW/up, 0 = CCW/down. Keep the same convention used by
+    // the existing MIDI encoder handling below.
+    const int delta = direction ? 1 : -1;
+    __atomic_add_fetch(&g_RemoteEncoderDelta, delta, __ATOMIC_RELAXED);
+    return 1;
+}
+
+static void MaybeEmitLCDChangeSerialEvent(const uint8_t *pLCDData);
+
 void CMiniJV880::Process(bool bPlugAndPlayUpdated)
 {
     // ----------------------------------------
@@ -1130,15 +1336,118 @@ void CMiniJV880::Process(bool bPlugAndPlayUpdated)
     // ----------------------------------------
     m_InjectedButtonMask = 0;
 
-    // Lightweight heartbeat: confirms that Process() is running at runtime
-    static uint32_t hb = 0;
-    if ((++hb & 0x3FF) == 0)
-        DebugTX::WriteString("HB Process\r\n");
-
     // ----------------------------------------
     // 2. Firmware UI always active
     // ----------------------------------------
     m_UI.Process();
+
+    // Remote tap handling:
+    // - release tap bits scheduled by the previous Process() frames;
+    // - keep one-frame-old tap bits pressed for one more frame;
+    // - press newly queued tap bits and hold them for two Process() frames.
+    const uint32_t remoteTapReleaseMask =
+        __atomic_exchange_n(&g_RemoteTapReleaseMask, 0u, __ATOMIC_RELAXED);
+    if (remoteTapReleaseMask != 0)
+        __atomic_and_fetch(&g_RemoteButtonMask, ~remoteTapReleaseMask, __ATOMIC_RELAXED);
+
+    const uint32_t remoteTapHoldMask =
+        __atomic_exchange_n(&g_RemoteTapHoldMask, 0u, __ATOMIC_RELAXED);
+    if (remoteTapHoldMask != 0)
+        __atomic_or_fetch(&g_RemoteTapReleaseMask, remoteTapHoldMask, __ATOMIC_RELAXED);
+
+    uint32_t remoteTapMask =
+        __atomic_exchange_n(&g_RemoteTapMask, 0u, __ATOMIC_RELAXED);
+
+    // Overlay-local ENTER handling:
+    // SR/RD500 overlays normally consume ENTER through the UI button handler,
+    // not through the JV-880 raw key matrix. For remote ENTER tap, use the
+    // same UI event path instead of duplicating SR/RD500 actions here.
+    if ((remoteTapMask & BTN_ENTER_MASK) != 0 &&
+        (m_bSRMenuActive || m_bRD500MenuActive || m_bRD500PatchBrowseActive))
+    {
+        DebugTX::WriteString("REMOTE ENTER: UI handler\r\n");
+
+        m_UI.TriggerUIButtonEvent(CUIButton::BtnEventEnter);
+
+        remoteTapMask &= ~BTN_ENTER_MASK;
+        __atomic_and_fetch(&g_RemoteButtonMask, ~BTN_ENTER_MASK, __ATOMIC_RELAXED);
+        __atomic_and_fetch(&g_RemoteTapHoldMask, ~BTN_ENTER_MASK, __ATOMIC_RELAXED);
+        __atomic_and_fetch(&g_RemoteTapReleaseMask, ~BTN_ENTER_MASK, __ATOMIC_RELAXED);
+    }
+
+    if (remoteTapMask != 0)
+    {
+        __atomic_or_fetch(&g_RemoteButtonMask, remoteTapMask, __ATOMIC_RELAXED);
+        __atomic_or_fetch(&g_RemoteTapHoldMask, remoteTapMask, __ATOMIC_RELAXED);
+    }
+
+    // Remote encoder events are consumed inside the main MiniJV880 loop, so
+    // network callbacks only enqueue a tiny delta and never touch MCU state.
+    int remoteEncoderDelta = __atomic_exchange_n(&g_RemoteEncoderDelta, 0, __ATOMIC_RELAXED);
+    if (remoteEncoderDelta > 8)
+        remoteEncoderDelta = 8;
+    else if (remoteEncoderDelta < -8)
+        remoteEncoderDelta = -8;
+
+    while (remoteEncoderDelta > 0)
+    {
+        if (m_bSYXMenuActive)
+        {
+            NextSYX();
+            DebugTX::WriteString("REMOTE ENC: SYX next\r\n");
+        }
+        else if (m_bRD500PatchBrowseActive)
+        {
+            NextRD500Patch();
+            DebugTX::WriteString("REMOTE ENC: RD500 patch next\r\n");
+        }
+        else if (m_bRD500MenuActive)
+        {
+            NextRD500Bank();
+            DebugTX::WriteString("REMOTE ENC: RD500 bank next\r\n");
+        }
+        else if (m_bSRMenuActive)
+        {
+            NextSR();
+            DebugTX::WriteString("REMOTE ENC: SR next\r\n");
+        }
+        else
+        {
+            mcu.MCU_EncoderTrigger(1); // CW/up
+        }
+
+        --remoteEncoderDelta;
+    }
+
+    while (remoteEncoderDelta < 0)
+    {
+        if (m_bSYXMenuActive)
+        {
+            PrevSYX();
+            DebugTX::WriteString("REMOTE ENC: SYX prev\r\n");
+        }
+        else if (m_bRD500PatchBrowseActive)
+        {
+            PrevRD500Patch();
+            DebugTX::WriteString("REMOTE ENC: RD500 patch prev\r\n");
+        }
+        else if (m_bRD500MenuActive)
+        {
+            PrevRD500Bank();
+            DebugTX::WriteString("REMOTE ENC: RD500 bank prev\r\n");
+        }
+        else if (m_bSRMenuActive)
+        {
+            PrevSR();
+            DebugTX::WriteString("REMOTE ENC: SR prev\r\n");
+        }
+        else
+        {
+            mcu.MCU_EncoderTrigger(0); // CCW/down
+        }
+
+        ++remoteEncoderDelta;
+    }
 
         // --- Data card BATLOW detector (UI-local replacement only) ---
     if (!m_bSRMenuActive)
@@ -1194,7 +1503,11 @@ void CMiniJV880::Process(bool bPlugAndPlayUpdated)
     bool dataPressedNow = false;
     if (m_UI.GetUIButtons())
     {
-        dataPressedNow = (m_UI.GetUIButtons()->GetRawMask() & (1 << 4)); // DATA = bit 4
+        const uint32_t inputMask =
+            m_UI.GetUIButtons()->GetRawMask() |
+            __atomic_load_n(&g_RemoteButtonMask, __ATOMIC_RELAXED);
+
+        dataPressedNow = (inputMask & BTN_DATA_MASK) != 0;
     }
 
     const bool dataPressedEdge  = (dataPressedNow && !dataPressedLastFrame);
@@ -1275,6 +1588,7 @@ void CMiniJV880::Process(bool bPlugAndPlayUpdated)
                 DBG("SR_OPEN_BY_DATA_EDGE");
 
                 // Open SR overlay here (final handling is in Process, not in the UI handler)
+                SaveLCDOverlaySnapshot(mcu.lcd.LCD_Data);
                 m_bSRMenuActive = true;
 
                 // optional: reset cursor/index if you want stable behavior
@@ -1286,6 +1600,7 @@ void CMiniJV880::Process(bool bPlugAndPlayUpdated)
             // CLOSE with your sequence (utility inject)
             DBG("SR_CLOSE_BY_DATA_EDGE");
 
+            ScheduleLCDOverlayRestoreAfterUtilityDone();
             memset(&mcu.lcd.LCD_Data[0], ' ', 80);
 
             // block DATA until it is released (definitive debounce)
@@ -1323,6 +1638,7 @@ void CMiniJV880::Process(bool bPlugAndPlayUpdated)
             s_dataDownTick = 0;
 
 
+            SaveLCDOverlaySnapshot(mcu.lcd.LCD_Data);
             m_bSRMenuActive = true;
         }
 
@@ -1344,7 +1660,7 @@ void CMiniJV880::Process(bool bPlugAndPlayUpdated)
         // Apply mask according to the current state
         if (m_UtilitySeqState == 1 || m_UtilitySeqState == 3)
         {
-            m_InjectedButtonMask |= (1 << 8); // UTILITY ON
+            m_InjectedButtonMask |= BTN_UTILITY_MASK; // UTILITY ON
         }
         // states 2 and 4 = UTILITY OFF (we do not set the bit)
 
@@ -1379,6 +1695,7 @@ void CMiniJV880::Process(bool bPlugAndPlayUpdated)
                     m_UtilitySeqState = 0;
                     m_UtilitySeqFrames = 0;
                     DBG("UTILITY_SEQ_DONE");
+                    RestoreLCDOverlaySnapshotAfterUtilityDone(mcu.lcd.LCD_Data);
                     break;
             }
         }
@@ -1423,10 +1740,15 @@ if (m_bSYXMenuActive)
     static bool s_enterLongFired = false;
     static uint32_t s_enterDownTick = 0;
 
-    auto exitSYXMenuToPatchUI = [&]()
+    auto exitSYXMenuToPatchUI = [&](bool restoreLCDSnapshot)
     {
         m_bSYXMenuActive = false;
         DebugTX::WriteString("SYX MENU: exit\r\n");
+
+        if (restoreLCDSnapshot)
+            ScheduleLCDOverlayRestoreAfterUtilityDone();
+        else
+            CancelLCDOverlaySnapshot();
 
         memset(mcu.lcd.LCD_Data, ' ', 80);
 
@@ -1468,7 +1790,8 @@ if (m_bSYXMenuActive)
 
     const uint32_t syxInputMask =
         m_UI.GetUIButtons()->GetRawMask() |
-        GetMIDIHeldButtonMaskWithTimedEnter();
+        GetMIDIHeldButtonMaskWithTimedEnter() |
+        __atomic_load_n(&g_RemoteButtonMask, __ATOMIC_RELAXED);
 
     bool enterNow = (syxInputMask & BTN_ENTER_MASK) != 0;
 
@@ -1525,7 +1848,7 @@ if (m_bSYXMenuActive)
                 else
                 {
                     DebugTX::WriteString("SYX LONGPRESS: exit menu\r\n");
-                    exitSYXMenuToPatchUI();
+                    exitSYXMenuToPatchUI(true);
                 }
             }
         }
@@ -1584,7 +1907,7 @@ if (m_bSYXMenuActive)
                             m_nSYXLastLoadedIndex = m_nSYXIndex;
                         }
 
-                        exitSYXMenuToPatchUI();
+                        exitSYXMenuToPatchUI(false);
                     }
                 }
                 else
@@ -1598,6 +1921,11 @@ if (m_bSYXMenuActive)
 
         s_prevEnter = enterNow;
     }
+
+    // The SYX overlay returns from Process() before the generic LCD serial
+    // readback emitter below. Emit here too so the PC GUI can follow
+    // PN-JV80 / SYX navigation without manual /rlcd.txt refresh.
+    MaybeEmitLCDChangeSerialEvent(mcu.lcd.LCD_Data);
 
     return;
 }
@@ -1704,8 +2032,10 @@ if (m_bSYXMenuActive)
             GetMIDIHeldButtonMaskWithTimedEnter();
 
         realMask |= midiHeldMask;
+        realMask |= __atomic_load_n(
+            &g_RemoteButtonMask, __ATOMIC_RELAXED);
         
-        const bool enterPressedNow = (realMask & (1 << 7)) != 0;
+        const bool enterPressedNow = (realMask & BTN_ENTER_MASK) != 0;
 
         const bool canOpenSyxMenu =
             !m_bSRMenuActive &&
@@ -1726,7 +2056,6 @@ if (m_bSYXMenuActive)
                 s_enterTracking = true;
                 s_enterLongFired = false;
                 s_enterDownTick = CTimer::Get()->GetTicks();
-                DebugTX::WriteString("SYX CANDIDATE: ENTER down in PATCH base\r\n");
             }
             else
             {
@@ -1750,6 +2079,7 @@ if (m_bSYXMenuActive)
 
                 DebugTX::WriteString("SYX LONGPRESS: open menu\r\n");
 
+                SaveLCDOverlaySnapshot(mcu.lcd.LCD_Data);
                 m_bSYXMenuActive = true;
                 m_nSYXIndex = 0;
                 m_bSYXWaitEnterRelease = true;
@@ -1872,12 +2202,12 @@ if (m_bSYXMenuActive)
             // In DATA long-press candidate contexts, do not let the firmware
             // see DATA until the long-press threshold is reached. If the
             // button is released before that, SR opens as a short press instead.
-            realMask &= ~(1 << 4);
+            realMask &= ~BTN_DATA_MASK;
         }
 
         if (m_BlockDataUntilRelease)
         {
-            realMask &= ~(1 << 4); // always remove DATA
+            realMask &= ~BTN_DATA_MASK; // always remove DATA
 
             if (!dataPressedNow)   // physically released
             {
@@ -1907,7 +2237,7 @@ if (m_bSYXMenuActive)
             }
             else
             {
-                realMask &= ~(1 << 4); // clear DATA bit
+                realMask &= ~BTN_DATA_MASK; // clear DATA bit
             }
         }
 
@@ -1925,51 +2255,10 @@ if (m_bSYXMenuActive)
             }
         }
 
-        static uint32_t last = 0xFFFFFFFF;
-        uint32_t now = mcu.mcu_button_pressed;
-        if (now != last)
-        {
-            {
-                const bool isMenu = IsFirmwareMenuScreen();
-                const EPlayMode pm = DetectPlayModeFromLCD();
-
-                char s[64];
-                snprintf(s, sizeof(s), "[PMCHK] menu=%u pm=%u\r\n",
-                         (unsigned)isMenu, (unsigned)pm);
-                DebugTX::WriteString(s);
-
-                auto dump24 = [](const char* p, const char* tag)
-                {
-                    char line[40];
-                    unsigned j = 0;
-                    while (*tag && j < sizeof(line)-1) line[j++] = *tag++;
-                    if (j < sizeof(line)-1) line[j++] = ':';
-                    if (j < sizeof(line)-1) line[j++] = ' ';
-
-                    for (unsigned i = 0; i < 24 && j < sizeof(line)-3; ++i)
-                    {
-                        char c = p[i];
-                        if (c < 32 || c > 126) c = '.';
-                        line[j++] = c;
-                    }
-                    line[j++] = '\r';
-                    line[j++] = '\n';
-                    line[j] = 0;
-                    DebugTX::WriteString(line);
-                };
-
-                dump24((const char*)mcu.lcd.LCD_Data + 0,  "LCD1");
-                dump24((const char*)mcu.lcd.LCD_Data + 40, "LCD2");
-            }
-
-            last = now;
-            DBG_HEX("BTN", now);
-            DBG_HEX("REAL", realMask);
-            DBG_HEX("INJ", m_InjectedButtonMask);
-        }
     } // <-- chiude if (m_UI.GetUIButtons())
 
     PlayModeTrackingTick();
+    MaybeEmitLCDChangeSerialEvent(mcu.lcd.LCD_Data);
     
     {
         static uint32_t s_flush_throttle = 0;
@@ -2591,6 +2880,8 @@ void CMiniJV880::PrevRD500Patch()
 void CMiniJV880::RequestCloseSRMenu()
 {
     DBG("SR_CLOSE_REQUEST");
+
+    ScheduleLCDOverlayRestoreAfterUtilityDone();
 
     // Clear the LCD buffer (80 characters), as in DATA close
     memset(&mcu.lcd.LCD_Data[0], ' ', 80);
@@ -3218,7 +3509,9 @@ static const char* PlayModeToStr(CMiniJV880::EPlayMode pm)
 
 static void DebugDumpLCD24(const char *p, const char *tag)
 {
-    char line[32];
+    // Needs room for "LCDx: " + 24 LCD chars + CR/LF + NUL.
+    // line[32] could truncate the 24th LCD column.
+    char line[40];
     unsigned j = 0;
 
     // tag + ": "
@@ -3240,6 +3533,381 @@ static void DebugDumpLCD24(const char *p, const char *tag)
     DebugTX::WriteString(line);
 }
 
+
+static void CopyLCDLine24ForSerial(char *pDst, const uint8_t *pSrc)
+{
+    for (unsigned i = 0; i < 24; ++i)
+    {
+        pDst[i] = MiniJV880_MapLCDReadbackChar(pSrc[i]);
+    }
+    pDst[24] = '\0';
+}
+
+static bool LCDLineStartsWith24(const char *pLine, const char *pPrefix)
+{
+    if (pLine == 0 || pPrefix == 0)
+        return false;
+
+    while (*pPrefix)
+    {
+        if (*pLine++ != *pPrefix++)
+            return false;
+    }
+
+    return true;
+}
+
+static const char* LEDStateText(bool bOn)
+{
+    return bOn ? "ON" : "OFF";
+}
+
+static bool ExtractToneLEDBitsFromLCDLine24(const char *pLine1,
+                                             char toneBits[5],
+                                             char blinkBits[5])
+{
+    if (pLine1 == 0 || toneBits == 0 || blinkBits == 0)
+        return false;
+
+    strcpy(toneBits, "0000");
+    strcpy(blinkBits, "0000");
+
+    const char *pOpen = 0;
+
+    for (unsigned i = 0; i < 24; ++i)
+    {
+        if (pLine1[i] == '[')
+        {
+            pOpen = pLine1 + i;
+            break;
+        }
+    }
+
+    if (pOpen == 0)
+        return false;
+
+    for (unsigned i = 0; i < 4; ++i)
+    {
+        const char c = pOpen[1 + i];
+
+        if (c == '-')
+        {
+            toneBits[i] = '0';
+            blinkBits[i] = '0';
+        }
+        else if (c == '*' || (c >= '1' && c <= '4'))
+        {
+            // Manual rule: star and digits both mean Tone selected.
+            // Selected Tone Switch indicators blink.
+            toneBits[i] = '1';
+            blinkBits[i] = '1';
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    toneBits[4] = 0;
+    blinkBits[4] = 0;
+    return true;
+}
+
+static bool BuildModeLEDReadbackLine(const char *pLine1, char *pOut, unsigned nOutSize)
+{
+    if (pLine1 == 0 || pOut == 0 || nOutSize == 0)
+        return false;
+
+    pOut[0] = '\0';
+
+    const int LED_CONTEXT_UNKNOWN = 0;
+    const int LED_CONTEXT_PATCH   = 1;
+    const int LED_CONTEXT_PERF    = 2;
+    const int LED_CONTEXT_RHYTHM  = 3;
+
+    static int s_lastBaseContext = LED_CONTEXT_UNKNOWN;
+    static int s_utilitySourceContext = LED_CONTEXT_UNKNOWN;
+
+    const bool bUtility = LCDLineStartsWith24(pLine1, "Util:");
+
+    const bool bUtilPatch  = LCDLineStartsWith24(pLine1, "Util:Patch");
+    const bool bUtilPerf   = LCDLineStartsWith24(pLine1, "Util:Perf");
+    const bool bUtilRhythm = LCDLineStartsWith24(pLine1, "Util:Rhythm");
+
+    const bool bPatchScreen =
+        !bUtility &&
+        LCDLineStartsWith24(pLine1, "Patch");
+
+    const bool bPerfScreen =
+        !bUtility &&
+        (
+            LCDLineStartsWith24(pLine1, "Performance") ||
+            LCDLineStartsWith24(pLine1, "Perform") ||
+            LCDLineStartsWith24(pLine1, "Perf")
+        );
+
+    const bool bRhythmScreen =
+        !bUtility &&
+        LCDLineStartsWith24(pLine1, "Rhythm");
+
+    if (!bUtility)
+    {
+        s_utilitySourceContext = LED_CONTEXT_UNKNOWN;
+
+        if (bPatchScreen)
+            s_lastBaseContext = LED_CONTEXT_PATCH;
+        else if (bPerfScreen)
+            s_lastBaseContext = LED_CONTEXT_PERF;
+        else if (bRhythmScreen)
+            s_lastBaseContext = LED_CONTEXT_RHYTHM;
+    }
+    else
+    {
+        if (bUtilPatch)
+            s_utilitySourceContext = LED_CONTEXT_PATCH;
+        else if (bUtilPerf)
+            s_utilitySourceContext = LED_CONTEXT_PERF;
+        else if (bUtilRhythm)
+            s_utilitySourceContext = LED_CONTEXT_RHYTHM;
+        else if (s_utilitySourceContext == LED_CONTEXT_UNKNOWN)
+            s_utilitySourceContext = s_lastBaseContext;
+    }
+
+    const bool bPatchKnown =
+        bPatchScreen ||
+        (bUtility && s_utilitySourceContext == LED_CONTEXT_PATCH);
+
+    const bool bPerfKnown =
+        bPerfScreen ||
+        (bUtility && s_utilitySourceContext == LED_CONTEXT_PERF);
+
+    const bool bEdit =
+        !bUtility &&
+        (
+            LCDLineStartsWith24(pLine1, "Patch:") ||
+            LCDLineStartsWith24(pLine1, "Performance:") ||
+            LCDLineStartsWith24(pLine1, "Perform:") ||
+            LCDLineStartsWith24(pLine1, "Perf:")
+        );
+
+    const bool bSystem =
+        !bUtility &&
+        LCDLineStartsWith24(pLine1, "System");
+
+    const bool bRhythm =
+        bRhythmScreen ||
+        (bUtility && s_utilitySourceContext == LED_CONTEXT_RHYTHM);
+
+    char toneBits[5] = "0000";
+    char blinkBits[5] = "0000";
+
+    // The bracket field means Tone selection only on Patch:Tone screens.
+    // Performance Edit can show fields such as [1234----] / [----5678],
+    // but those are Parts, not Tone Switch LED states.
+    if (LCDLineStartsWith24(pLine1, "Patch:Tone"))
+        ExtractToneLEDBitsFromLCDLine24(pLine1, toneBits, blinkBits);
+
+    int n = 0;
+
+    if (bPatchKnown || bPerfKnown)
+    {
+        n = snprintf(
+            pOut,
+            nOutSize,
+            "LED|PATCHPERF=%s|EDIT=%s|SYSTEM=%s|RHYTHM=%s|UTILITY=%s|TONE=%s|BLINK=%s",
+            bPatchKnown ? "ON" : "OFF",
+            LEDStateText(bEdit),
+            LEDStateText(bSystem),
+            LEDStateText(bRhythm),
+            LEDStateText(bUtility),
+            toneBits,
+            blinkBits);
+    }
+    else
+    {
+        n = snprintf(
+            pOut,
+            nOutSize,
+            "LED|EDIT=%s|SYSTEM=%s|RHYTHM=%s|UTILITY=%s|TONE=%s|BLINK=%s",
+            LEDStateText(bEdit),
+            LEDStateText(bSystem),
+            LEDStateText(bRhythm),
+            LEDStateText(bUtility),
+            toneBits,
+            blinkBits);
+    }
+
+    return n > 0 && (unsigned)n < nOutSize;
+}
+
+static void MaybeEmitModeLEDSerialEvent(const char *pLine1)
+{
+    char payload[192];
+    if (!BuildModeLEDReadbackLine(pLine1, payload, sizeof payload))
+        return;
+
+    char out[200];
+    int n = snprintf(out, sizeof out, "%s%c%c", payload, 13, 10);
+    if (n <= 0 || (unsigned)n >= sizeof out)
+        return;
+
+    static char s_lastOut[200] = {0};
+    if (strcmp(out, s_lastOut) == 0)
+        return;
+
+    DebugTX::WriteString(out);
+    strncpy(s_lastOut, out, sizeof s_lastOut);
+    s_lastOut[sizeof s_lastOut - 1] = '\0';
+}
+
+extern "C" int MiniJV880_GetLEDReadbackSnapshot(char *pLine, unsigned nLineSize)
+{
+    if (pLine == 0 || nLineSize == 0)
+        return 0;
+
+    pLine[0] = '\0';
+
+    CMiniJV880 *pThis = CMiniJV880::GetInstance();
+    if (pThis == 0)
+        return 0;
+
+    char line1[25];
+    CopyLCDLine24ForSerial(line1, pThis->mcu.lcd.LCD_Data + 0);
+
+    return BuildModeLEDReadbackLine(line1, pLine, nLineSize) ? 1 : 0;
+}
+
+static bool BuildLCDCursorReadbackLine(char *pOut, unsigned nOutSize)
+{
+    if (pOut == 0 || nOutSize == 0)
+        return false;
+
+    pOut[0] = '\0';
+
+    unsigned nRow = 0;
+    unsigned nCol = 0;
+    unsigned nEnabled = 0;
+    unsigned nVisible = 0;
+    unsigned nAddress = 0;
+
+    if (!MiniJV880_GetLCDCursorSnapshot(&nRow, &nCol, &nEnabled, &nVisible, &nAddress))
+        return false;
+
+    const int n = snprintf(
+        pOut,
+        nOutSize,
+        "LCDC|ROW=%u|COL=%u|ENABLED=%u|VISIBLE=%u|ADDR=0x%02X",
+        nRow,
+        nCol,
+        nEnabled,
+        nVisible,
+        nAddress);
+
+    return n > 0 && (unsigned)n < nOutSize;
+}
+
+static bool BuildLCDCursorPositionKey(char *pOut, unsigned nOutSize)
+{
+    if (pOut == 0 || nOutSize == 0)
+        return false;
+
+    pOut[0] = '\0';
+
+    unsigned nRow = 0;
+    unsigned nCol = 0;
+    unsigned nEnabled = 0;
+    unsigned nVisible = 0;
+    unsigned nAddress = 0;
+
+    if (!MiniJV880_GetLCDCursorSnapshot(&nRow, &nCol, &nEnabled, &nVisible, &nAddress))
+        return false;
+
+    const int n = snprintf(
+        pOut,
+        nOutSize,
+        "ROW=%u|COL=%u|ADDR=0x%02X",
+        nRow,
+        nCol,
+        nAddress);
+
+    return n > 0 && (unsigned)n < nOutSize;
+}
+
+static void MaybeEmitLCDChangeSerialEvent(const uint8_t *pLCDData)
+{
+    static char s_candidate1[25] = {0};
+    static char s_candidate2[25] = {0};
+    static char s_candidateCursor[80] = {0};
+    static char s_candidateCursorPos[64] = {0};
+    static char s_emitted1[25] = {0};
+    static char s_emitted2[25] = {0};
+    static char s_emittedCursor[80] = {0};
+    static char s_emittedCursorPos[64] = {0};
+    static unsigned s_stableFrames = 0;
+    static unsigned s_framesSinceEmit = 1000;
+
+    char line1[25];
+    char line2[25];
+    char cursor[80];
+    char cursorPos[64];
+
+    CopyLCDLine24ForSerial(line1, pLCDData + 0);
+    CopyLCDLine24ForSerial(line2, pLCDData + 40);
+    BuildLCDCursorReadbackLine(cursor, sizeof cursor);
+    BuildLCDCursorPositionKey(cursorPos, sizeof cursorPos);
+
+    if (memcmp(line1, s_candidate1, sizeof line1) != 0 ||
+        memcmp(line2, s_candidate2, sizeof line2) != 0 ||
+        strcmp(cursorPos, s_candidateCursorPos) != 0)
+    {
+        memcpy(s_candidate1, line1, sizeof line1);
+        memcpy(s_candidate2, line2, sizeof line2);
+        strncpy(s_candidateCursor, cursor, sizeof s_candidateCursor);
+        s_candidateCursor[sizeof s_candidateCursor - 1] = '\0';
+        strncpy(s_candidateCursorPos, cursorPos, sizeof s_candidateCursorPos);
+        s_candidateCursorPos[sizeof s_candidateCursorPos - 1] = '\0';
+        s_stableFrames = 0;
+    }
+    else if (s_stableFrames < 1000)
+    {
+        ++s_stableFrames;
+    }
+
+    if (s_framesSinceEmit < 1000)
+        ++s_framesSinceEmit;
+
+    // Emit only after the same LCD text has been seen for a few Process()
+    // passes, and avoid flooding the serial debug channel.
+    if (s_stableFrames < 4 || s_framesSinceEmit < 16)
+        return;
+
+    if (memcmp(s_candidate1, s_emitted1, sizeof s_candidate1) == 0 &&
+        memcmp(s_candidate2, s_emitted2, sizeof s_candidate2) == 0 &&
+        strcmp(s_candidateCursorPos, s_emittedCursorPos) == 0)
+    {
+        return;
+    }
+
+    DebugDumpLCD24(s_candidate1, "LCD1");
+    DebugDumpLCD24(s_candidate2, "LCD2");
+
+    if (s_candidateCursor[0] != '\0')
+    {
+        char cursorOut[96];
+        const int cursorLen = snprintf(cursorOut, sizeof cursorOut, "%s%c%c", s_candidateCursor, 13, 10);
+        if (cursorLen > 0 && (unsigned)cursorLen < sizeof cursorOut)
+            DebugTX::WriteString(cursorOut);
+    }
+    MaybeEmitModeLEDSerialEvent(s_candidate1);
+    memcpy(s_emitted1, s_candidate1, sizeof s_emitted1);
+    memcpy(s_emitted2, s_candidate2, sizeof s_emitted2);
+    strncpy(s_emittedCursor, s_candidateCursor, sizeof s_emittedCursor);
+    s_emittedCursor[sizeof s_emittedCursor - 1] = '\0';
+    strncpy(s_emittedCursorPos, s_candidateCursorPos, sizeof s_emittedCursorPos);
+    s_emittedCursorPos[sizeof s_emittedCursorPos - 1] = '\0';
+    s_framesSinceEmit = 0;
+}
+
 void CMiniJV880::PlayModeTrackingTick()
 {
     // Do not interfere with the SR menu
@@ -3254,9 +3922,6 @@ void CMiniJV880::PlayModeTrackingTick()
         if (m_CurrentPlayMode != EPlayMode::Unknown)
             m_BaseModeBeforeMenu = m_CurrentPlayMode;
 
-        DebugTX::WriteString("[PM] enter menu base=");
-        DebugTX::WriteString(PlayModeToStr(m_BaseModeBeforeMenu));
-        DebugTX::WriteString("\r\n");
         DebugDumpLCD24((const char*)mcu.lcd.LCD_Data + 0,  "LCD1");
         DebugDumpLCD24((const char*)mcu.lcd.LCD_Data + 40, "LCD2");
     }
@@ -3268,11 +3933,6 @@ void CMiniJV880::PlayModeTrackingTick()
         if (now != EPlayMode::Unknown)
             m_CurrentPlayMode = now;
 
-        DebugTX::WriteString("[PM] exit menu now=");
-        DebugTX::WriteString(PlayModeToStr(now));
-        DebugTX::WriteString(" base=");
-        DebugTX::WriteString(PlayModeToStr(m_BaseModeBeforeMenu));
-        DebugTX::WriteString("\r\n");
         DebugDumpLCD24((const char*)mcu.lcd.LCD_Data + 0,  "LCD1");
         DebugDumpLCD24((const char*)mcu.lcd.LCD_Data + 40, "LCD2"); 
         
@@ -3284,7 +3944,6 @@ void CMiniJV880::PlayModeTrackingTick()
             // start ON/OFF sequence (a single short press)
             m_PatchPerfSeqState  = 1;   // ON
             m_PatchPerfSeqFrames = 2;   // keep pressed for 2 frames
-            DebugTX::WriteString("[PM] mismatch -> PATCH/PERF toggle\r\n");
         }  
     }
 

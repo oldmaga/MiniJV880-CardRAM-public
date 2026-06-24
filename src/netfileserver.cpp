@@ -21,9 +21,26 @@ extern "C" const char* MiniJV880_GetCardRamCurrentPath(void);
 extern "C" const char* MiniJV880_GetCardRamLegacyPath(void);
 extern "C" void MiniJV880_FlushCardRamIfNeededNow(void);
 
+extern "C" int MiniJV880_RemoteButtonMaskDown(unsigned mask);
+extern "C" int MiniJV880_RemoteButtonMaskUp(unsigned mask);
+extern "C" int MiniJV880_RemoteButtonMaskTap(unsigned mask);
+extern "C" int MiniJV880_RemoteButtonMaskClear(void);
+extern "C" int MiniJV880_RemoteEncoder(int direction);
+extern "C" int MiniJV880_GetLCDSnapshot(char *pLine1, unsigned nLine1Size,
+                                        char *pLine2, unsigned nLine2Size);
+extern "C" int MiniJV880_GetLCDCursorSnapshot(unsigned *pRow, unsigned *pCol,
+                                             unsigned *pEnabled, unsigned *pVisible,
+                                             unsigned *pAddress);
+extern "C" int MiniJV880_GetLEDReadbackSnapshot(char *pLine, unsigned nLineSize);
+
 namespace
 {
 	static const unsigned NETFILE_HTTP_MAX_CONTENT = 8192;
+
+	static const unsigned kRemoteBTNData      = 0x00000010; // DATA = bit 4
+	static const unsigned kRemoteBTNEnter     = 0x00000080; // ENTER = bit 7
+	static const unsigned kRemoteBTNUtility   = 0x00000100; // UTILITY = bit 8
+	static const unsigned kRemoteBTNPatchPerf = 0x00000400; // PATCH/PERF
 
 	static const char *kKernelActivePath = "SD:/kernel8-rpi4.img";
 	static const char *kKernelStagePath  = "SD:/kernel8-rpi4.img.new";
@@ -572,6 +589,318 @@ namespace
 
 		pDst[nOut] = '\0';
 		return true;
+	}
+
+	static char RemoteUpperASCII (char ch)
+	{
+		return (ch >= 'a' && ch <= 'z') ? (char) (ch - 'a' + 'A') : ch;
+	}
+
+	static bool RemoteEqualsCI (const char *pA, const char *pB)
+	{
+		if (pA == 0 || pB == 0)
+		{
+			return false;
+		}
+
+		while (*pA != '\0' && *pB != '\0')
+		{
+			if (RemoteUpperASCII (*pA) != RemoteUpperASCII (*pB))
+			{
+				return false;
+			}
+
+			pA++;
+			pB++;
+		}
+
+		return *pA == '\0' && *pB == '\0';
+	}
+
+	static bool RemoteGetQueryValue (
+		const char *pParams,
+		const char *pName,
+		char *pValue,
+		size_t nValueSize)
+	{
+		if (pParams == 0 || pName == 0 || pValue == 0 || nValueSize == 0)
+		{
+			return false;
+		}
+
+		pValue[0] = '\0';
+		const size_t nNameLen = strlen (pName);
+		const char *p = pParams;
+
+		while (*p != '\0')
+		{
+			const char *pNext = strchr (p, '&');
+			size_t nPairLen = pNext != 0 ? (size_t) (pNext - p) : strlen (p);
+
+			if (nPairLen > nNameLen && strncmp (p, pName, nNameLen) == 0 && p[nNameLen] == '=')
+			{
+				const char *pRawValue = p + nNameLen + 1;
+				size_t nRawLen = nPairLen - nNameLen - 1;
+
+				char RawValue[96];
+				if (nRawLen >= sizeof RawValue)
+				{
+					return false;
+				}
+
+				for (size_t i = 0; i < nRawLen; i++)
+				{
+					char ch = pRawValue[i];
+					RawValue[i] = ch == '+' ? ' ' : ch;
+				}
+
+				RawValue[nRawLen] = '\0';
+				return URLDecode (RawValue, pValue, nValueSize);
+			}
+
+			if (pNext == 0)
+			{
+				break;
+			}
+
+			p = pNext + 1;
+		}
+
+		return false;
+	}
+
+	static bool RemoteButtonNameToMask (const char *pName, unsigned *pMask)
+	{
+		if (pName == 0 || pMask == 0)
+		{
+			return false;
+		}
+
+		if (RemoteEqualsCI (pName, "DATA"))
+		{
+			*pMask = kRemoteBTNData;
+			return true;
+		}
+
+		if (RemoteEqualsCI (pName, "ENTER"))
+		{
+			*pMask = kRemoteBTNEnter;
+			return true;
+		}
+
+		if (RemoteEqualsCI (pName, "UTILITY") || RemoteEqualsCI (pName, "UTIL"))
+		{
+			*pMask = kRemoteBTNUtility;
+			return true;
+		}
+
+		if (RemoteEqualsCI (pName, "PATCHPERF")
+			|| RemoteEqualsCI (pName, "PATCH_PERF")
+			|| RemoteEqualsCI (pName, "PATCH-PERF")
+			|| RemoteEqualsCI (pName, "PATCHPERFORMANCE")
+			|| RemoteEqualsCI (pName, "PATCH_PERFORMANCE")
+			|| RemoteEqualsCI (pName, "PATCH-PERFORMANCE"))
+		{
+			*pMask = kRemoteBTNPatchPerf;
+			return true;
+		}
+
+		return false;
+	}
+
+	static bool RemoteParseMask (const char *pText, unsigned *pMask)
+	{
+		if (pText == 0 || pMask == 0 || pText[0] == '\0')
+		{
+			return false;
+		}
+
+		char *pEnd = 0;
+		unsigned long nValue = strtoul (pText, &pEnd, 0);
+
+		if (pEnd == pText || *pEnd != '\0' || nValue == 0 || nValue > 0xFFFFFFFFUL)
+		{
+			return false;
+		}
+
+		*pMask = (unsigned) nValue;
+		return true;
+	}
+
+	static bool RemoteGetButtonMask (const char *pParams, unsigned *pMask, char *pNameText, size_t nNameTextSize)
+	{
+		char Value[96];
+
+		if (RemoteGetQueryValue (pParams, "b", Value, sizeof Value))
+		{
+			if (pNameText != 0 && nNameTextSize != 0)
+			{
+				snprintf (pNameText, nNameTextSize, "%s", Value);
+			}
+
+			return RemoteButtonNameToMask (Value, pMask);
+		}
+
+		if (RemoteGetQueryValue (pParams, "m", Value, sizeof Value))
+		{
+			if (pNameText != 0 && nNameTextSize != 0)
+			{
+				snprintf (pNameText, nNameTextSize, "%s", Value);
+			}
+
+			return RemoteParseMask (Value, pMask);
+		}
+
+		return false;
+	}
+
+	static THTTPStatus HandleRemoteCommandPage (
+		const char *pPath,
+		const char *pParams,
+		char *pPage,
+		size_t nPageSize,
+		const char **ppBody)
+	{
+		if (pPath == 0 || pPage == 0 || nPageSize == 0 || ppBody == 0)
+		{
+			return HTTPInternalServerError;
+		}
+
+		bool bOK = false;
+		const char *pAction = "unknown";
+		char TargetText[96];
+		TargetText[0] = '\0';
+
+		if (strcmp (pPath, "/rhelp") == 0)
+		{
+			int nWritten = snprintf (
+				pPage, nPageSize,
+				"<html>"
+				"<head><title>MiniJV880 remote diagnostics</title></head>"
+				"<body>"
+				"<h1>MiniJV880 remote diagnostics</h1>"
+				"<p>Remote control HTML is intentionally not served by MiniJV880.</p>"
+				"<p>Use an external PC page/tool and the small technical endpoints only.</p>"
+				"<ul>"
+				"<li>/rbtn?b=ENTER</li>"
+				"<li>/rdown?b=DATA</li>"
+				"<li>/rup?b=DATA</li>"
+				"<li>/rraw?a=tap&amp;m=0x00000010</li>"
+				"<li>/renc?d=cw</li>"
+				"<li>/renc?d=ccw</li>"
+				"<li>/rclr</li>"
+				"</ul>"
+				"<p><a href=\"/rclr\">Clear remote buttons</a></p>"
+				"<p><a href=\"/status\">Back to status</a></p>"
+				"<p><a href=\"/\">Back to home</a></p>"
+				"</body>"
+				"</html>");
+
+			if (nWritten < 0 || (size_t) nWritten >= nPageSize)
+			{
+				return HTTPInternalServerError;
+			}
+
+			*ppBody = pPage;
+			return HTTPOK;
+		}
+
+		if (strcmp (pPath, "/rclr") == 0)
+		{
+			bOK = MiniJV880_RemoteButtonMaskClear () != 0;
+			pAction = "clear";
+			snprintf (TargetText, sizeof TargetText, "all remote buttons");
+		}
+		else if (strcmp (pPath, "/renc") == 0)
+		{
+			char Direction[32];
+			if (RemoteGetQueryValue (pParams, "d", Direction, sizeof Direction))
+			{
+				if (RemoteEqualsCI (Direction, "cw") || RemoteEqualsCI (Direction, "up") || strcmp (Direction, "1") == 0)
+				{
+					bOK = MiniJV880_RemoteEncoder (1) != 0;
+					pAction = "encoder";
+					snprintf (TargetText, sizeof TargetText, "cw");
+				}
+				else if (RemoteEqualsCI (Direction, "ccw") || RemoteEqualsCI (Direction, "down") || strcmp (Direction, "0") == 0)
+				{
+					bOK = MiniJV880_RemoteEncoder (0) != 0;
+					pAction = "encoder";
+					snprintf (TargetText, sizeof TargetText, "ccw");
+				}
+			}
+		}
+		else
+		{
+			unsigned Mask = 0;
+			if (RemoteGetButtonMask (pParams, &Mask, TargetText, sizeof TargetText))
+			{
+				if (strcmp (pPath, "/rbtn") == 0)
+				{
+					bOK = MiniJV880_RemoteButtonMaskTap (Mask) != 0;
+					pAction = "tap";
+				}
+				else if (strcmp (pPath, "/rdown") == 0)
+				{
+					bOK = MiniJV880_RemoteButtonMaskDown (Mask) != 0;
+					pAction = "down";
+				}
+				else if (strcmp (pPath, "/rup") == 0)
+				{
+					bOK = MiniJV880_RemoteButtonMaskUp (Mask) != 0;
+					pAction = "up";
+				}
+				else if (strcmp (pPath, "/rraw") == 0)
+				{
+					char Action[32];
+					if (RemoteGetQueryValue (pParams, "a", Action, sizeof Action))
+					{
+						if (RemoteEqualsCI (Action, "tap"))
+						{
+							bOK = MiniJV880_RemoteButtonMaskTap (Mask) != 0;
+							pAction = "raw tap";
+						}
+						else if (RemoteEqualsCI (Action, "down"))
+						{
+							bOK = MiniJV880_RemoteButtonMaskDown (Mask) != 0;
+							pAction = "raw down";
+						}
+						else if (RemoteEqualsCI (Action, "up"))
+						{
+							bOK = MiniJV880_RemoteButtonMaskUp (Mask) != 0;
+							pAction = "raw up";
+						}
+					}
+				}
+			}
+		}
+
+		int nWritten = snprintf (
+			pPage, nPageSize,
+			"<html>"
+			"<head><title>MiniJV880 remote command</title></head>"
+			"<body>"
+			"<h1>MiniJV880 remote command</h1>"
+			"<ul>"
+			"<li>Executed: %s</li>"
+			"<li>Action: %s</li>"
+			"<li>Target: %s</li>"
+			"</ul>"
+			"<p><a href=\"/rhelp\">Back to remote test</a></p>"
+			"<p><a href=\"/\">Back to home</a></p>"
+			"</body>"
+			"</html>",
+			BoolText (bOK),
+			pAction,
+			TargetText[0] != '\0' ? TargetText : "(none)");
+
+		if (nWritten < 0 || (size_t) nWritten >= nPageSize)
+		{
+			return HTTPInternalServerError;
+		}
+
+		*ppBody = pPage;
+		return HTTPOK;
 	}
 	
 	static int CompareNameRows (const void *pA, const void *pB)
@@ -4305,7 +4634,6 @@ int nWritten = snprintf (
 		                                unsigned    *pLength,
 		                                const char **ppContentType)
 		{
-			(void) pParams;
 			(void) pFormData;
 
 			if (pPath == 0 || pBuffer == 0 || pLength == 0 || ppContentType == 0)
@@ -4318,7 +4646,38 @@ int nWritten = snprintf (
                         char BrowsePage[1600];
                         char PNPage[8192];
 
-                        if (strcmp (pPath, "/") == 0 || strcmp (pPath, "/index.html") == 0)
+                        const bool bRemotePath =
+                            strcmp (pPath, "/rhelp") == 0
+                            || strcmp (pPath, "/rbtn") == 0
+                            || strcmp (pPath, "/rdown") == 0
+                            || strcmp (pPath, "/rup") == 0
+                            || strcmp (pPath, "/rraw") == 0
+                            || strcmp (pPath, "/rclr") == 0
+                            || strcmp (pPath, "/renc") == 0;
+
+                        if (!bRemotePath)
+                        {
+                            // Safety: leaving the remote-control test area must
+                            // never leave a virtual key held down while opening
+                            // normal management pages such as /kernel-status.
+                            MiniJV880_RemoteButtonMaskClear ();
+                        }
+
+                        if (bRemotePath)
+                        {
+                            THTTPStatus Status = HandleRemoteCommandPage (
+                                pPath,
+                                pParams,
+                                PNPage,
+                                sizeof PNPage,
+                                &pBody);
+
+                            if (Status != HTTPOK)
+                            {
+                                return Status;
+                            }
+                        }
+                        else if (strcmp (pPath, "/") == 0 || strcmp (pPath, "/index.html") == 0)
                         {
 	                    pBody =
 		                "<html>"
@@ -6264,6 +6623,116 @@ int nWritten = snprintf (
 
 	                   pBody = StatusPage;
                         }
+
+                        else if (strcmp (pPath, "/rled.txt") == 0)
+                        {
+                           char LEDLine[192];
+
+                           const int bAvailable = MiniJV880_GetLEDReadbackSnapshot (
+                               LEDLine, sizeof LEDLine);
+
+                           int nWritten = 0;
+                           if (bAvailable)
+                           {
+                              nWritten = snprintf (
+                                  StatusPage, sizeof StatusPage,
+                                  "%s\n",
+                                  LEDLine);
+                           }
+                           else
+                           {
+                              nWritten = snprintf (
+                                  StatusPage, sizeof StatusPage,
+                                  "LED: unavailable\n");
+                           }
+
+                           if (nWritten < 0 || (unsigned) nWritten >= sizeof StatusPage)
+                           {
+                              return HTTPInternalServerError;
+                           }
+
+                           size_t nBodyLength = strlen (StatusPage);
+                           if (nBodyLength > *pLength)
+                           {
+                              return HTTPInternalServerError;
+                           }
+
+                           memcpy (pBuffer, StatusPage, nBodyLength);
+                           *pLength = (unsigned) nBodyLength;
+                           *ppContentType = "text/plain; charset=iso-8859-1";
+                           return HTTPOK;
+                        }
+                        else if (strcmp (pPath, "/rlcd.txt") == 0)
+                        {
+                           char LCD1[25];
+                           char LCD2[25];
+
+                           const int bAvailable = MiniJV880_GetLCDSnapshot (
+                               LCD1, sizeof LCD1,
+                               LCD2, sizeof LCD2);
+
+                           unsigned CursorRow = 0;
+                           unsigned CursorCol = 0;
+                           unsigned CursorEnabled = 0;
+                           unsigned CursorVisible = 0;
+                           unsigned CursorAddress = 0;
+
+                           const int bCursorAvailable = MiniJV880_GetLCDCursorSnapshot (
+                               &CursorRow,
+                               &CursorCol,
+                               &CursorEnabled,
+                               &CursorVisible,
+                               &CursorAddress);
+
+                           int nWritten = 0;
+                           if (bAvailable && bCursorAvailable)
+                           {
+                              nWritten = snprintf (
+                                  StatusPage, sizeof StatusPage,
+                                  "LCD1: %s\n"
+                                  "LCD2: %s\n"
+                                  "CURSOR: ROW=%u COL=%u ENABLED=%u VISIBLE=%u ADDR=0x%02X\n",
+                                  LCD1,
+                                  LCD2,
+                                  CursorRow,
+                                  CursorCol,
+                                  CursorEnabled,
+                                  CursorVisible,
+                                  CursorAddress);
+                           }
+                           else if (bAvailable)
+                           {
+                              nWritten = snprintf (
+                                  StatusPage, sizeof StatusPage,
+                                  "LCD1: %s\n"
+                                  "LCD2: %s\n",
+                                  LCD1,
+                                  LCD2);
+                           }
+                           else
+                           {
+                              nWritten = snprintf (
+                                  StatusPage, sizeof StatusPage,
+                                  "LCD: unavailable\n");
+                           }
+
+                           if (nWritten < 0 || (unsigned) nWritten >= sizeof StatusPage)
+                           {
+                              return HTTPInternalServerError;
+                           }
+
+                           size_t nBodyLength = strlen (StatusPage);
+                           if (nBodyLength > *pLength)
+                           {
+                              return HTTPInternalServerError;
+                           }
+
+                           memcpy (pBuffer, StatusPage, nBodyLength);
+                           *pLength = (unsigned) nBodyLength;
+                           *ppContentType = "text/plain; charset=iso-8859-1";
+                           return HTTPOK;
+                        }
+
 
                         else if (strcmp (pPath, "/cardram.txt") == 0)
                         {
