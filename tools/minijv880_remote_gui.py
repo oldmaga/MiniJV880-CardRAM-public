@@ -20,9 +20,17 @@ Current safe scope:
 
 from __future__ import annotations
 
+import errno
+import fcntl
 import json
 import os
+import shutil
+import signal
+import subprocess
+import termios
 import threading
+import time
+import tty
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, font as tkfont
@@ -180,7 +188,25 @@ class MiniJV880RemoteGUI:
         self.serial_baud = tk.IntVar(value=38400)
         self.serial_status = tk.StringVar(value="Serial stopped")
         self.serial_running = False
+        self.serial_open = False
         self.serial_thread: threading.Thread | None = None
+        self.serial_stdout_mirror = tk.BooleanVar(value=False)
+
+        runtime_dir = Path(
+            os.environ.get(
+                "XDG_RUNTIME_DIR",
+                f"/run/user/{os.getuid()}",
+            )
+        )
+        self.minicom_bridge_link = runtime_dir / "minijv880-log"
+        self.minicom_bridge_master_fd: int | None = None
+        self.minicom_bridge_connected = False
+        self.minicom_bridge_lock = threading.Lock()
+        self.minicom_bridge_monitor_thread: threading.Thread | None = None
+        self.minicom_bridge_process: subprocess.Popen | None = None
+        self.minicom_button: tk.Widget | None = None
+        self.minicom_button_text_item: int | None = None
+
         self._pending_serial_lcd1: str | None = None
         self.connection_window: tk.Toplevel | None = None
         self.display_settings_window: tk.Toplevel | None = None
@@ -444,6 +470,7 @@ class MiniJV880RemoteGUI:
 
     def _on_close(self) -> None:
         self.serial_running = False
+        self._close_minicom_bridge()
 
         if self._lcd_cursor_blink_after_id is not None:
             try:
@@ -2363,6 +2390,53 @@ class MiniJV880RemoteGUI:
 
         self._refresh_serial_toggle()
 
+        minicom_row = ttk.Frame(box)
+        minicom_row.grid(
+            row=99,
+            column=0,
+            sticky="ew",
+            padx=6,
+            pady=(4, 6),
+        )
+        minicom_row.columnconfigure(2, weight=1)
+
+        self.minicom_button, self.minicom_button_text_item = (
+            self._top_action_button(
+                minicom_row,
+                (
+                    "Close minicom"
+                    if self.minicom_bridge_master_fd is not None
+                    else "Open minicom"
+                ),
+                self.toggle_minicom_bridge,
+                0,
+                0,
+                width_px=112,
+                padx=(0, 10),
+            )
+        )
+
+        ttk.Checkbutton(
+            minicom_row,
+            text="Mirror raw serial to shell",
+            variable=self.serial_stdout_mirror,
+        ).grid(
+            row=0,
+            column=1,
+            sticky="w",
+            padx=(0, 12),
+        )
+
+        ttk.Label(
+            minicom_row,
+            text=f"Minicom PTY: {self.minicom_bridge_link}",
+            anchor="w",
+        ).grid(
+            row=0,
+            column=2,
+            sticky="ew",
+        )
+
     def _set_serial_details_button_label(self, label: str) -> None:
         try:
             if isinstance(self.serial_details_button, tk.Canvas) and self.serial_details_text_item is not None:
@@ -2448,6 +2522,478 @@ class MiniJV880RemoteGUI:
         self._apply_serial_toggle_visual()
 
 
+
+    def _set_minicom_button_label(self, label: str) -> None:
+        button = self.minicom_button
+        text_item = self.minicom_button_text_item
+
+        if button is None or text_item is None:
+            return
+
+        try:
+            if button.winfo_exists():
+                button.itemconfigure(text_item, text=label)
+        except Exception:
+            pass
+
+    def _serial_lock_pid(self, port: str) -> int | None:
+        lock_name = f"LCK..{Path(port).name}"
+
+        for directory in (Path("/run/lock"), Path("/var/lock")):
+            lock_path = directory / lock_name
+
+            try:
+                fields = lock_path.read_text(
+                    encoding="ascii",
+                    errors="ignore",
+                ).strip().split()
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+
+            if not fields:
+                continue
+
+            try:
+                pid = int(fields[0])
+            except ValueError:
+                continue
+
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                return pid
+            else:
+                return pid
+
+        return None
+
+    def _serial_port_other_owners(self, port: str) -> list[str]:
+        owners: list[str] = []
+        current_pid = os.getpid()
+
+        try:
+            port_path = Path(port).resolve(strict=True)
+        except OSError:
+            return owners
+
+        try:
+            process_dirs = list(Path("/proc").iterdir())
+        except OSError:
+            return owners
+
+        for process_dir in process_dirs:
+            if not process_dir.name.isdigit():
+                continue
+
+            pid = int(process_dir.name)
+
+            if pid == current_pid:
+                continue
+
+            fd_dir = process_dir / "fd"
+
+            try:
+                fd_entries = list(fd_dir.iterdir())
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+
+            owns_port = False
+
+            for fd_path in fd_entries:
+                try:
+                    if os.path.samefile(fd_path, port_path):
+                        owns_port = True
+                        break
+                except (FileNotFoundError, PermissionError, OSError):
+                    continue
+
+            if not owns_port:
+                continue
+
+            try:
+                process_name = (
+                    process_dir / "comm"
+                ).read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                ).strip()
+            except (FileNotFoundError, PermissionError, OSError):
+                process_name = "unknown"
+
+            owners.append(f"{pid}:{process_name}")
+
+        return owners
+
+    def _pty_client_present(self, slave_path: str) -> bool:
+        current_pid = os.getpid()
+
+        try:
+            slave = Path(slave_path).resolve(strict=True)
+            process_dirs = list(Path("/proc").iterdir())
+        except OSError:
+            return False
+
+        for process_dir in process_dirs:
+            if not process_dir.name.isdigit():
+                continue
+
+            if int(process_dir.name) == current_pid:
+                continue
+
+            try:
+                fd_entries = list((process_dir / "fd").iterdir())
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+
+            for fd_path in fd_entries:
+                try:
+                    if os.path.samefile(fd_path, slave):
+                        return True
+                except (FileNotFoundError, PermissionError, OSError):
+                    continue
+
+        return False
+
+    def _close_minicom_bridge(
+        self,
+        status_message: str | None = None,
+        *,
+        terminate_process: bool = True,
+    ) -> bool:
+        with self.minicom_bridge_lock:
+            master_fd = self.minicom_bridge_master_fd
+            process = self.minicom_bridge_process
+
+            had_bridge = (
+                master_fd is not None
+                or process is not None
+                or self.minicom_bridge_link.is_symlink()
+            )
+
+            self.minicom_bridge_master_fd = None
+            self.minicom_bridge_connected = False
+            self.minicom_bridge_process = None
+            self.minicom_bridge_monitor_thread = None
+
+        if (
+            terminate_process
+            and process is not None
+            and process.poll() is None
+        ):
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                try:
+                    process.terminate()
+                except OSError:
+                    pass
+
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+
+        try:
+            if self.minicom_bridge_link.is_symlink():
+                self.minicom_bridge_link.unlink()
+                had_bridge = True
+        except OSError:
+            pass
+
+        def update_ui() -> None:
+            self._set_minicom_button_label("Open minicom")
+
+            if status_message is not None and had_bridge:
+                self.serial_status.set(status_message)
+
+        try:
+            self.root.after(0, update_ui)
+        except Exception:
+            pass
+
+        return had_bridge
+
+    def _drain_minicom_input(self, master_fd: int) -> None:
+        # GPIO4 is a one-way MiniJV880 -> PC debug connection.
+        # Discard anything typed inside minicom so PTY input cannot fill.
+        while True:
+            try:
+                data = os.read(master_fd, 4096)
+            except InterruptedError:
+                continue
+            except BlockingIOError:
+                return
+            except OSError as exc:
+                if exc.errno in (
+                    errno.EAGAIN,
+                    errno.EWOULDBLOCK,
+                    errno.EIO,
+                ):
+                    return
+                return
+
+            if not data:
+                return
+
+    def _mirror_serial_to_minicom(self, payload: bytes) -> None:
+        with self.minicom_bridge_lock:
+            if not self.minicom_bridge_connected:
+                return
+
+            master_fd = self.minicom_bridge_master_fd
+
+        if master_fd is None:
+            return
+
+        remaining = memoryview(payload)
+
+        while remaining:
+            try:
+                written = os.write(master_fd, remaining)
+            except InterruptedError:
+                continue
+            except BlockingIOError:
+                return
+            except OSError as exc:
+                if exc.errno not in (
+                    errno.EAGAIN,
+                    errno.EWOULDBLOCK,
+                ):
+                    self._close_minicom_bridge(
+                        "Minicom bridge disconnected"
+                    )
+                return
+
+            if written <= 0:
+                return
+
+            remaining = remaining[written:]
+
+    def _minicom_bridge_monitor(
+        self,
+        master_fd: int,
+        slave_path: str,
+        process: subprocess.Popen,
+    ) -> None:
+        deadline = time.monotonic() + 12.0
+        connected = False
+
+        while process.poll() is None:
+            with self.minicom_bridge_lock:
+                if (
+                    self.minicom_bridge_master_fd != master_fd
+                    or self.minicom_bridge_process is not process
+                ):
+                    return
+
+            if not connected:
+                if self._pty_client_present(slave_path):
+                    connected = True
+
+                    with self.minicom_bridge_lock:
+                        if (
+                            self.minicom_bridge_master_fd != master_fd
+                            or self.minicom_bridge_process is not process
+                        ):
+                            return
+
+                        self.minicom_bridge_connected = True
+
+                    try:
+                        self.root.after(
+                            0,
+                            lambda: self.serial_status.set(
+                                "Minicom connected via "
+                                f"{self.minicom_bridge_link}"
+                            ),
+                        )
+                    except Exception:
+                        pass
+
+                elif time.monotonic() >= deadline:
+                    self._close_minicom_bridge(
+                        "Minicom did not connect; bridge stopped"
+                    )
+                    return
+
+            else:
+                self._drain_minicom_input(master_fd)
+
+            time.sleep(0.10)
+
+        if connected:
+            message = "Minicom closed; bridge stopped"
+        else:
+            message = "Minicom exited before connecting"
+
+        self._close_minicom_bridge(
+            message,
+            terminate_process=False,
+        )
+
+    def toggle_minicom_bridge(self) -> None:
+        with self.minicom_bridge_lock:
+            bridge_active = self.minicom_bridge_master_fd is not None
+
+        if bridge_active:
+            self._close_minicom_bridge(
+                "Minicom bridge stopped"
+            )
+        else:
+            self.open_minicom_bridge()
+
+    def open_minicom_bridge(self) -> None:
+        if not self.serial_open:
+            self.serial_status.set(
+                "Start serial and wait for the listening state first"
+            )
+            return
+
+        terminal = shutil.which("xterm")
+        minicom = shutil.which("minicom")
+
+        if terminal is None:
+            self.serial_status.set(
+                "xterm is required to open the minicom log window"
+            )
+            return
+
+        if minicom is None:
+            self.serial_status.set(
+                "minicom is not installed"
+            )
+            return
+
+        try:
+            baud = int(self.serial_baud.get())
+        except Exception:
+            baud = 38400
+
+        with self.minicom_bridge_lock:
+            if self.minicom_bridge_master_fd is not None:
+                self.serial_status.set(
+                    "Minicom bridge is already active"
+                )
+                return
+
+        link = self.minicom_bridge_link
+
+        try:
+            if link.is_symlink():
+                link.unlink()
+            elif link.exists():
+                self.serial_status.set(
+                    f"Cannot replace existing file: {link}"
+                )
+                return
+        except OSError as exc:
+            self.serial_status.set(
+                f"Cannot prepare minicom PTY link: {exc}"
+            )
+            return
+
+        master_fd = -1
+        slave_fd = -1
+        process: subprocess.Popen | None = None
+
+        try:
+            master_fd, slave_fd = os.openpty()
+            tty.setraw(slave_fd)
+            os.set_blocking(master_fd, False)
+
+            slave_path = os.ttyname(slave_fd)
+            link.symlink_to(slave_path)
+
+            command = [
+                terminal,
+                "-T",
+                "MiniJV880 serial log",
+                "-geometry",
+                "100x28",
+                "-e",
+                minicom,
+                "-D",
+                str(link),
+                "-b",
+                str(baud),
+                "-8",
+                "-o",
+            ]
+
+            process = subprocess.Popen(
+                command,
+                close_fds=True,
+                start_new_session=True,
+            )
+
+            os.close(slave_fd)
+            slave_fd = -1
+
+            with self.minicom_bridge_lock:
+                self.minicom_bridge_master_fd = master_fd
+                self.minicom_bridge_connected = False
+                self.minicom_bridge_process = process
+
+            master_fd = -1
+
+            self._set_minicom_button_label("Close minicom")
+            self.serial_status.set(
+                f"Waiting for minicom on {link}"
+            )
+
+            self.minicom_bridge_monitor_thread = threading.Thread(
+                target=self._minicom_bridge_monitor,
+                args=(
+                    self.minicom_bridge_master_fd,
+                    slave_path,
+                    process,
+                ),
+                daemon=True,
+            )
+            self.minicom_bridge_monitor_thread.start()
+
+        except Exception as exc:
+            if (
+                process is not None
+                and process.poll() is None
+            ):
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    try:
+                        process.terminate()
+                    except OSError:
+                        pass
+
+            if slave_fd >= 0:
+                try:
+                    os.close(slave_fd)
+                except OSError:
+                    pass
+
+            if master_fd >= 0:
+                try:
+                    os.close(master_fd)
+                except OSError:
+                    pass
+
+            try:
+                if link.is_symlink():
+                    link.unlink()
+            except OSError:
+                pass
+
+            self.serial_status.set(
+                f"Cannot start minicom bridge: {exc}"
+            )
+
     def toggle_serial_monitor(self) -> None:
         if self.serial_running:
             self.stop_serial_monitor()
@@ -2466,6 +3012,33 @@ class MiniJV880RemoteGUI:
         port = self.serial_port.get().strip()
         if not port:
             self.serial_status.set("Serial port is empty")
+            return
+
+        if (
+            self.serial_thread is not None
+            and self.serial_thread.is_alive()
+        ):
+            self.serial_status.set(
+                "Serial monitor is still stopping"
+            )
+            return
+
+        busy_reasons: list[str] = []
+
+        lock_pid = self._serial_lock_pid(port)
+        if lock_pid is not None:
+            busy_reasons.append(f"lock PID {lock_pid}")
+
+        busy_reasons.extend(
+            self._serial_port_other_owners(port)
+        )
+
+        if busy_reasons:
+            details = ", ".join(busy_reasons)
+            self.serial_status.set(
+                f"{port} is already in use ({details}); "
+                "close direct minicom first"
+            )
             return
 
         try:
@@ -2492,29 +3065,82 @@ class MiniJV880RemoteGUI:
 
     def stop_serial_monitor(self) -> None:
         self.serial_running = False
+        self._close_minicom_bridge(
+            "Stopping serial; minicom bridge closed"
+        )
         self._refresh_serial_toggle()
         self.serial_status.set("Stopping serial monitor...")
 
     def _serial_worker(self, port: str, baud: int) -> None:
         assert serial is not None
+        error_message: str | None = None
 
         try:
-            with serial.Serial(port, baudrate=baud, timeout=0.5) as ser:
-                self.root.after(0, lambda: self.serial_status.set(f"Serial listening on {port} @ {baud}"))
+            with serial.Serial(
+                port,
+                baudrate=baud,
+                timeout=0.5,
+                exclusive=True,
+            ) as ser:
+                try:
+                    fcntl.ioctl(
+                        ser.fileno(),
+                        termios.TIOCEXCL,
+                    )
+                except (AttributeError, OSError):
+                    pass
+
+                self.serial_open = True
+                self.root.after(
+                    0,
+                    lambda: self.serial_status.set(
+                        f"Serial listening on {port} @ {baud}"
+                    ),
+                )
 
                 while self.serial_running:
                     raw = ser.readline()
                     if not raw:
                         continue
 
-                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-                    self.root.after(0, lambda line=line: self._handle_serial_line(line))
+                    self._mirror_serial_to_minicom(raw)
+
+                    line = raw.decode(
+                        "utf-8",
+                        errors="replace",
+                    ).rstrip("\r\n")
+                    self.root.after(
+                        0,
+                        lambda line=line: self._handle_serial_line(line),
+                    )
 
         except Exception as exc:
-            self.root.after(0, lambda exc=exc: self.serial_status.set(f"Serial error: {exc}"))
+            error_message = f"Serial error: {exc}"
+
         finally:
+            self.serial_open = False
             self.serial_running = False
-            self.root.after(0, self._refresh_serial_toggle)
+            self._close_minicom_bridge()
+
+            if error_message is None:
+                self.root.after(
+                    0,
+                    lambda: self.serial_status.set(
+                        "Serial stopped"
+                    ),
+                )
+            else:
+                self.root.after(
+                    0,
+                    lambda message=error_message: (
+                        self.serial_status.set(message)
+                    ),
+                )
+
+            self.root.after(
+                0,
+                self._refresh_serial_toggle,
+            )
 
     def _append_serial_tail(self, line: str) -> None:
         if self.serial_log_text is None:
@@ -2686,9 +3312,11 @@ class MiniJV880RemoteGUI:
     def _handle_serial_line(self, line: str) -> None:
         self._append_serial_tail(line)
 
-        # Mirror serial lines to stdout so shell tools such as tee can capture
-        # diagnostic probes without changing the GUI workflow.
-        print(line, flush=True)
+        # Optional diagnostic mirror. Normal GUI use keeps raw serial
+        # data out of the launching shell because minicom receives its own
+        # copy through the PTY bridge.
+        if self.serial_stdout_mirror.get():
+            print(line, flush=True)
 
         if self._handle_serial_led_line(line):
             return

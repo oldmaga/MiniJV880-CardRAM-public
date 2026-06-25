@@ -30,7 +30,8 @@ For full live LCD/LED readback, serial monitor support is also recommended:
 
 - `pyserial`;
 - a serial adapter connected to the MiniJV880 debug serial output;
-- permission to access the serial device, for example `/dev/ttyUSB0`.
+- permission to access the serial device, for example `/dev/ttyUSB0`;
+- `xterm` and `minicom` for the optional integrated external serial-log window.
 
 On Debian/Ubuntu-style systems the typical packages are:
 
@@ -323,6 +324,29 @@ The serial monitor does not send commands over serial.
 
 Remote commands still use HTTP.
 
+### Integrated minicom log bridge
+
+When the GUI serial monitor is active, the GUI must remain the only process that opens the physical serial device, for example `/dev/ttyUSB0`.
+
+Use `Open minicom` in the Serial window instead of starting a second minicom process directly on the physical port. The GUI reads each physical serial byte once, continues to update its own LCD/LED parser, and mirrors the same raw bytes to a temporary pseudo-terminal:
+
+    /run/user/$UID/minijv880-log
+
+The GUI launches `xterm` and runs minicom on this pseudo-terminal as the current user. `sudo` is not required.
+
+The pseudo-terminal exists only while the integrated log window is active. It is removed when:
+
+- the xterm/minicom window is closed;
+- `Close minicom` is pressed;
+- the GUI serial monitor is stopped;
+- the GUI itself is closed.
+
+Typing in the integrated minicom window is discarded and is never forwarded to the MiniJV880. The GPIO4 debug connection remains one-way from MiniJV880 to PC.
+
+Do not run standalone `minicom`, `screen`, or another serial reader directly on `/dev/ttyUSB0` while the GUI serial monitor is active. Multiple readers on the same serial device can split or steal bytes from one another.
+
+`Mirror raw serial to shell` is disabled by default. Enable it only when raw diagnostic output is deliberately required in the shell that launched the GUI.
+
 The current MiniJV880 debug serial output is normally available on the dedicated debug serial line used by the project. Check the hardware/front-panel documentation for the current wiring notes.
 
 ## 15. Settings persistence
@@ -436,7 +460,8 @@ Check:
 - baud rate;
 - user permissions for the serial device;
 - whether `pyserial` is installed;
-- whether another program is already using the serial port.
+- whether another program, such as standalone `minicom` or `screen`, already owns the physical serial device;
+- whether `xterm` and `minicom` are installed when using `Open minicom`.
 
 ### Permission denied on `/dev/ttyUSB0`
 

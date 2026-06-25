@@ -20,8 +20,12 @@ GPIO15: UART RX (reserved for MIDI)
 Debug Serial (GPIO4)
 Connect GPIO4 -> USB-TTL RX and GND -> GND.
 Settings: 38400 baud, 8 data bits, no parity, 1 stop bit, no flow control.
-Example:
+Standalone example:
 minicom -D /dev/ttyUSB0 -b 38400 -8 -o
+
+Use this direct command only when the Python Remote GUI serial monitor is not running.
+
+When using tools/minijv880_remote_gui.py, start the serial monitor in the GUI and use its Open minicom control. The GUI remains the sole owner of /dev/ttyUSB0 and mirrors the received stream to the temporary PTY /run/user/$UID/minijv880-log. Do not open the physical serial device from a second program at the same time.
 
 Software Configuration Summary
 DATA button is reserved for SR overlay toggle and ButtonActionData is ignored.

@@ -30,7 +30,8 @@ Per il readback live completo di LCD e LED è consigliato anche il supporto seri
 
 - `pyserial`;
 - un adattatore seriale collegato all'uscita seriale di debug del MiniJV880;
-- permessi di accesso al dispositivo seriale, per esempio `/dev/ttyUSB0`.
+- permessi di accesso al dispositivo seriale, per esempio `/dev/ttyUSB0`;
+- `xterm` e `minicom` per la finestra opzionale integrata del log seriale.
 
 Su sistemi Debian/Ubuntu i pacchetti tipici sono:
 
@@ -323,6 +324,29 @@ Il monitor seriale non invia comandi via seriale.
 
 I comandi remoti usano comunque HTTP.
 
+### Bridge integrato per il log minicom
+
+Quando il monitor seriale della GUI è attivo, la GUI deve rimanere l'unico processo che apre il dispositivo seriale fisico, per esempio `/dev/ttyUSB0`.
+
+Usare `Open minicom` nella finestra Serial invece di avviare un secondo minicom direttamente sulla porta fisica. La GUI legge ogni byte della seriale fisica una sola volta, continua ad aggiornare il proprio parser LCD/LED e copia gli stessi byte grezzi su uno pseudo-terminale temporaneo:
+
+    /run/user/$UID/minijv880-log
+
+La GUI avvia `xterm` ed esegue minicom su questo pseudo-terminale come utente corrente. Non è necessario usare `sudo`.
+
+Lo pseudo-terminale esiste soltanto mentre la finestra di log integrata è attiva. Viene rimosso quando:
+
+- si chiude la finestra xterm/minicom;
+- si preme `Close minicom`;
+- si arresta il monitor seriale della GUI;
+- si chiude la GUI.
+
+Il testo digitato nella finestra minicom integrata viene scartato e non viene mai inoltrato al MiniJV880. La connessione di debug GPIO4 rimane unidirezionale dal MiniJV880 al PC.
+
+Non avviare `minicom`, `screen` o un altro lettore standalone direttamente su `/dev/ttyUSB0` mentre il monitor seriale della GUI è attivo. Più lettori sullo stesso dispositivo seriale possono suddividersi o sottrarsi reciprocamente i byte.
+
+`Mirror raw serial to shell` è disattivato per impostazione predefinita. Attivarlo soltanto quando si desidera deliberatamente il log diagnostico grezzo nella shell che ha avviato la GUI.
+
 L'output seriale di debug MiniJV880 corrente è normalmente disponibile sulla linea seriale di debug dedicata usata dal progetto. Controllare la documentazione hardware/front-panel per le note di cablaggio correnti.
 
 ## 15. Persistenza impostazioni
@@ -436,7 +460,8 @@ Controllare:
 - baud rate;
 - permessi utente per il dispositivo seriale;
 - che `pyserial` sia installato;
-- che nessun altro programma stia usando la porta seriale.
+- che nessun altro programma, per esempio `minicom` o `screen` standalone, possieda già il dispositivo seriale fisico;
+- che `xterm` e `minicom` siano installati quando si usa `Open minicom`.
 
 ### Permission denied su `/dev/ttyUSB0`
 
